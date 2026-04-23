@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:animate_do/animate_do.dart';
 import '../backend/auth_service.dart';
+import 'inventory_page.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
@@ -54,7 +55,9 @@ class AdminDashboard extends StatelessWidget {
                     Expanded(child: _buildStatCard("Active Jobs", "34 Total", Icons.engineering, Colors.orangeAccent)),
                   ],
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 16),
+                _buildInventoryNavCard(context),
+                const SizedBox(height: 28),
                 const Text("Central Control", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 20),
                 
@@ -117,6 +120,42 @@ class AdminDashboard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(label, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInventoryNavCard(BuildContext context) {
+    return FadeInUp(
+      child: GestureDetector(
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const InventoryPage())),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(0.08)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.orangeAccent.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+                child: const Icon(Icons.inventory_2_rounded, color: Colors.orangeAccent),
+              ),
+              const SizedBox(width: 20),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Inventory Control", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text("Monitor and adjust system stock", style: TextStyle(color: Colors.white30, fontSize: 11)),
+                ],
+              ),
+              const Spacer(),
+              const Text("Manage Stock →", style: TextStyle(color: Colors.orangeAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+            ],
+          ),
         ),
       ),
     );

@@ -35,4 +35,34 @@ class ApiService {
       return {'status': 'error', 'message': e.toString()};
     }
   }
+
+  Future<Map<String, dynamic>> addInventoryItem(Map<String, dynamic> data) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('addInventoryItem');
+      final result = await callable.call(data);
+      return result.data as Map<String, dynamic>;
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> getInventory() async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('getInventory');
+      final result = await callable.call();
+      return result.data as Map<String, dynamic>;
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateStock(int id, int adjustment) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('updateStock');
+      final result = await callable.call({'id': id, 'adjustment': adjustment});
+      return result.data as Map<String, dynamic>;
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
 }

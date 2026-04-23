@@ -55,13 +55,16 @@ class UserDashboard extends StatelessWidget {
                               Text(name, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
                             ],
                           ),
-                          Container(
-                            width: 42, height: 42,
-                            decoration: const BoxDecoration(color: accent, shape: BoxShape.circle),
-                            alignment: Alignment.center,
-                            child: photo.isNotEmpty 
-                              ? ClipRRect(borderRadius: BorderRadius.circular(21), child: Image.network(photo))
-                              : Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          GestureDetector(
+                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const UserProfilePage())),
+                            child: Container(
+                              width: 42, height: 42,
+                              decoration: const BoxDecoration(color: accent, shape: BoxShape.circle),
+                              alignment: Alignment.center,
+                              child: photo.isNotEmpty 
+                                ? ClipRRect(borderRadius: BorderRadius.circular(21), child: Image.network(photo))
+                                : Text(initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            ),
                           ),
                         ],
                       ),
