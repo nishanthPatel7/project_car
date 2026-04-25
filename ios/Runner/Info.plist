@@ -4,6 +4,10 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>We need your location to automatically fetch your pickup address for car service.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>We need your location to automatically fetch your pickup address for car service.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

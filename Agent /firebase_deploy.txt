@@ -1,0 +1,4 @@
+# FIREBASE FUNCTIONS DEPLOYMENT
+# Run this from the project root (/Users/for10/project_car)
+
+export PATH="/opt/homebrew/bin:$PATH" && firebase deploy --only functions

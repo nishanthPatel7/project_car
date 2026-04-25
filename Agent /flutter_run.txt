@@ -1,0 +1,4 @@
+# FLUTTER COMPILE AND RUN (ANDROID EMULATOR)
+# Ensure your emulator (emulator-5554) is already open
+
+export PATH="/opt/homebrew/bin:$PATH" && flutter run -d emulator-5554

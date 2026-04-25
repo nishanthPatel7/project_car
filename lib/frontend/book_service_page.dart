@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:animate_do/animate_do.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import '../backend/api_service.dart';
 
 class BookServicePage extends StatefulWidget {
@@ -13,17 +15,40 @@ class _BookServicePageState extends State<BookServicePage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _vehicleController = TextEditingController();
   final TextEditingController _issueController = TextEditingController();
+  final TextEditingController _addressController = TextEditingController();
   final List<String> _selectedServices = ['General Service'];
-  String _serviceMode = 'Walk-in'; // Walk-in or Pickup
   bool _isSubmitting = false;
+  String _serviceMode = 'Walk-in'; // Walk-in or Pickup
+  String _vehicleType = 'Car';
+  String? _selectedBrand;
+  String? _vehicleError;
+  String? _serviceError;
+  String? _addressError;
+  bool _isFetchingLocation = false;
+
+  final Map<String, List<String>> _topBrands = {
+    'Car': [
+      'Maruti Suzuki', 'Hyundai', 'Tata Motors', 'Mahindra', 'Toyota', 
+      'Kia', 'Honda', 'Skoda', 'MG Motor', 'Volkswagen'
+    ],
+    'Bike': [
+      'Hero MotoCorp', 'Honda', 'TVS', 'Bajaj Auto', 'Royal Enfield', 
+      'Suzuki', 'Yamaha', 'KTM', 'Jawa', 'Kawasaki'
+    ]
+  };
 
   final List<Map<String, dynamic>> _serviceItems = [
-    {'name': 'General Service', 'icon': Icons.settings_rounded},
-    {'name': 'Oil Change', 'icon': Icons.opacity_rounded},
-    {'name': 'Brake Repair', 'icon': Icons.disc_full_rounded},
-    {'name': 'Engine Check', 'icon': Icons.engineering_rounded},
+    {'name': 'General', 'icon': Icons.settings_rounded},
+    {'name': 'Oil', 'icon': Icons.opacity_rounded},
+    {'name': 'Brake', 'icon': Icons.disc_full_rounded},
+    {'name': 'Engine', 'icon': Icons.engineering_rounded},
     {'name': 'Body Wash', 'icon': Icons.wash_rounded},
-    {'name': 'AC Repair', 'icon': Icons.ac_unit_rounded},
+    {'name': 'AC', 'icon': Icons.ac_unit_rounded},
+    {'name': 'Battery', 'icon': Icons.battery_charging_full_rounded},
+    {'name': 'Tyre', 'icon': Icons.tire_repair_rounded},
+    {'name': 'Alignment', 'icon': Icons.align_vertical_center_rounded},
+    {'name': 'Painting', 'icon': Icons.format_paint_rounded},
+    {'name': 'Other', 'icon': Icons.more_horiz_rounded},
   ];
 
   static const Color primaryOrange = Color(0xFFFF5C00);
@@ -46,10 +71,9 @@ class _BookServicePageState extends State<BookServicePage> {
       setState(() {
         _userVehicles = res['data']?['vehicles'] ?? [];
         _isLoadingVehicles = false;
-        if (_userVehicles.isNotEmpty) {
-          _selectedVehicleId = _userVehicles[0]['id'].toString();
-          _vehicleController.text = _userVehicles[0]['vehicle_no'];
-        }
+        // Default to 'new' (Always as start option)
+        _selectedVehicleId = 'new';
+        _vehicleController.clear();
       });
     }
   }
@@ -67,13 +91,35 @@ class _BookServicePageState extends State<BookServicePage> {
   }
 
   void _submitBooking() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_vehicleController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select or enter a vehicle")));
-      return;
+    setState(() {
+      _vehicleError = null;
+      _serviceError = null;
+      _addressError = null;
+    });
+
+    bool hasError = false;
+
+    if (_selectedVehicleId == 'new') {
+      if (_selectedBrand == null || _vehicleController.text.isEmpty) {
+        setState(() => _vehicleError = "Not filled this details");
+        hasError = true;
+      }
     }
+
     if (_selectedServices.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select at least one service")));
+      setState(() => _serviceError = "Not filled this details");
+      hasError = true;
+    }
+
+    if (_serviceMode == 'Pickup' && _addressController.text.isEmpty) {
+      setState(() => _addressError = "Pickup address is required");
+      hasError = true;
+    }
+
+    if (hasError) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Some details are missing"), backgroundColor: Colors.redAccent),
+      );
       return;
     }
 
@@ -84,6 +130,9 @@ class _BookServicePageState extends State<BookServicePage> {
       'problemDesc': _issueController.text,
       'serviceTypes': _selectedServices,
       'mode': _serviceMode,
+      'address': _serviceMode == 'Pickup' ? _addressController.text : null,
+      'vehicleType': _vehicleType,
+      'brand': _selectedBrand ?? "",
     });
 
     setState(() => _isSubmitting = false);
@@ -150,8 +199,9 @@ class _BookServicePageState extends State<BookServicePage> {
                     child: ListView(
                       scrollDirection: Axis.horizontal,
                       children: [
+                        // New Vehicle option always first
+                        _buildNewVehicleToggle(),
                         ..._userVehicles.map((v) => _buildVehicleSmallCard(v)),
-                        _buildAddNewVehicleSmallCard(),
                       ],
                     ),
                   ),
@@ -160,25 +210,43 @@ class _BookServicePageState extends State<BookServicePage> {
               const SizedBox(height: 32),
               
               // Vehicle Number (if adding new, otherwise show selected)
-              _buildLabel("Vehicle Details"),
+              _buildLabel("1) Vehicle Details", error: _vehicleError),
               FadeInUp(
                 duration: const Duration(milliseconds: 500),
-                child: _buildTextField(_vehicleController, "Vehicle Number", Icons.directions_car_rounded, enabled: _selectedVehicleId == 'new'),
+                child: Column(
+                  children: [
+                    // Vehicle Type Selector (Bike/Car)
+                    if (_selectedVehicleId == 'new') ...[
+                      Row(
+                        children: [
+                          _buildTypeTile("Car", Icons.directions_car_rounded),
+                          const SizedBox(width: 12),
+                          _buildTypeTile("Bike", Icons.pedal_bike_rounded),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Brand Dropdown
+                      _buildBrandDropdown(),
+                      const SizedBox(height: 16),
+                    ],
+                    _buildTextField(_vehicleController, "Vehicle Number", Icons.confirmation_number_rounded, enabled: _selectedVehicleId == 'new'),
+                  ],
+                ),
               ),
               const SizedBox(height: 28),
 
               // Multiple Service Selection
-              _buildLabel("Select Services"),
+              _buildLabel("2) Select Services", error: _serviceError),
               FadeInUp(
                 duration: const Duration(milliseconds: 600),
                 child: GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 0.9,
+                    crossAxisCount: 4,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                    childAspectRatio: 1.0,
                   ),
                   itemCount: _serviceItems.length,
                   itemBuilder: (context, index) {
@@ -190,23 +258,50 @@ class _BookServicePageState extends State<BookServicePage> {
               const SizedBox(height: 28),
 
               // Issue Description
-              _buildLabel("Additional Notes"),
+              _buildLabel("3) Additional Notes"),
               FadeInUp(
                 duration: const Duration(milliseconds: 700),
-                child: _buildTextField(_issueController, "Any specific concerns?", Icons.edit_note_rounded, maxLines: 3),
+                child: _buildTextField(_issueController, "Any specific concerns? (Optional)", Icons.edit_note_rounded, maxLines: 3, required: false),
               ),
               const SizedBox(height: 32),
 
               // Service Mode
-              _buildLabel("Service Mode"),
+              _buildLabel("4) Service Mode"),
               const SizedBox(height: 12),
               FadeInUp(
                 duration: const Duration(milliseconds: 800),
-                child: Row(
+                child: Column(
                   children: [
-                    _buildModeTile("Walk-in", "Visit Garage", Icons.location_on_rounded),
-                    const SizedBox(width: 16),
-                    _buildModeTile("Pickup", "We Collect", Icons.moped_rounded),
+                    Row(
+                      children: [
+                        _buildModeTile("Walk-in", "Visit Garage", Icons.location_on_rounded),
+                        const SizedBox(width: 16),
+                        _buildModeTile("Pickup", "We Collect", Icons.moped_rounded),
+                      ],
+                    ),
+                    if (_serviceMode == 'Pickup') ...[
+                      const SizedBox(height: 16),
+                      FadeInUp(
+                        duration: const Duration(milliseconds: 500),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildLabel("Pickup Address", error: _addressError),
+                            _buildTextField(
+                              _addressController, 
+                              "Enter your full address", 
+                              Icons.home_rounded,
+                              suffix: IconButton(
+                                icon: _isFetchingLocation 
+                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: primaryOrange, strokeWidth: 2))
+                                  : const Icon(Icons.my_location_rounded, color: primaryOrange, size: 20),
+                                onPressed: _getCurrentLocation,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -269,16 +364,18 @@ class _BookServicePageState extends State<BookServicePage> {
     );
   }
 
-  Widget _buildAddNewVehicleSmallCard() {
+  Widget _buildNewVehicleToggle() {
     bool isSelected = _selectedVehicleId == 'new';
     return GestureDetector(
       onTap: () => setState(() {
         _selectedVehicleId = 'new';
         _vehicleController.clear();
+        _selectedBrand = null;
       }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        width: 100,
+        width: 120,
+        margin: const EdgeInsets.only(right: 12),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
@@ -288,37 +385,76 @@ class _BookServicePageState extends State<BookServicePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.add_rounded, color: isSelected ? primaryOrange : Colors.white24, size: 24),
+            Icon(Icons.add_circle_outline_rounded, color: isSelected ? primaryOrange : Colors.white24, size: 24),
             const SizedBox(height: 8),
-            Text("Add New", style: TextStyle(color: isSelected ? Colors.white : Colors.white38, fontSize: 12, fontWeight: FontWeight.bold)),
+            Text("NEW VEHICLE", style: TextStyle(color: isSelected ? Colors.white : Colors.white38, fontSize: 11, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildLabel(String text) {
+  Widget _buildLabel(String text, {String? error}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10, left: 4),
-      child: Text(text.toUpperCase(), style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+      padding: const EdgeInsets.only(bottom: 12, left: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(text.toUpperCase(), style: const TextStyle(color: Colors.white30, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+          if (error != null)
+            Text(error, style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+        ],
+      ),
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String hint, IconData icon, {int maxLines = 1, bool enabled = true}) {
+  Future<void> _getCurrentLocation() async {
+    setState(() => _isFetchingLocation = true);
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) throw 'Location services are disabled.';
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) throw 'Permission denied';
+      }
+      
+      if (permission == LocationPermission.deniedForever) throw 'Permission denied forever';
+
+      Position position = await Geolocator.getCurrentPosition();
+      List<Placemark> placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
+      
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks[0];
+        String address = "${place.street}, ${place.subLocality}, ${place.locality}, ${place.postalCode}";
+        setState(() {
+          _addressController.text = address;
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent));
+    } finally {
+      setState(() => _isFetchingLocation = false);
+    }
+  }
+
+  Widget _buildTextField(TextEditingController controller, String hint, IconData icon, {int maxLines = 1, bool enabled = true, bool required = true, Widget? suffix}) {
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
       enabled: enabled,
       style: TextStyle(color: enabled ? Colors.white : Colors.white38),
-      validator: (v) => v!.isEmpty ? "Required" : null,
+      validator: (v) => (required && (v == null || v.isEmpty)) ? "Required" : null,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(color: Colors.white12),
         prefixIcon: Icon(icon, color: enabled ? primaryOrange : Colors.white10, size: 20),
+        suffixIcon: suffix,
         filled: true,
         fillColor: cardBg,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-        contentPadding: const EdgeInsets.all(20),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       ),
     );
   }
@@ -349,6 +485,62 @@ class _BookServicePageState extends State<BookServicePage> {
     );
   }
 
+  Widget _buildTypeTile(String type, IconData icon) {
+    bool isSelected = _vehicleType == type;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() {
+          _vehicleType = type;
+          _selectedBrand = null; // Reset brand on type change
+        }),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: isSelected ? primaryOrange : Colors.white10),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: isSelected ? primaryOrange : Colors.white24, size: 18),
+              const SizedBox(width: 8),
+              Text(type, style: TextStyle(color: isSelected ? Colors.white : Colors.white38, fontWeight: FontWeight.bold, fontSize: 13)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBrandDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedBrand,
+          hint: const Text("Select Brand", style: TextStyle(color: Colors.white24, fontSize: 13)),
+          isExpanded: true,
+          dropdownColor: cardBg,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: primaryOrange),
+          items: _topBrands[_vehicleType]!.map((brand) {
+            return DropdownMenuItem(
+              value: brand,
+              child: Text(brand, style: const TextStyle(color: Colors.white, fontSize: 14)),
+            );
+          }).toList(),
+          onChanged: (val) => setState(() => _selectedBrand = val),
+        ),
+      ),
+    );
+  }
+
   Widget _buildServiceCard(String name, IconData icon) {
     bool isSelected = _selectedServices.contains(name);
     return GestureDetector(
@@ -366,15 +558,15 @@ class _BookServicePageState extends State<BookServicePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: isSelected ? primaryOrange : Colors.white24, size: 24),
-            const SizedBox(height: 8),
+            Icon(icon, color: isSelected ? primaryOrange : Colors.white24, size: 20),
+            const SizedBox(height: 6),
             Text(
               name,
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: isSelected ? Colors.white : Colors.white38,
-                fontSize: 10,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 9,
+                fontWeight: isSelected ? FontWeight.w900 : FontWeight.normal,
               ),
             ),
           ],

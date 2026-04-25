@@ -4,6 +4,7 @@ import '../backend/api_service.dart';
 import 'login_page.dart';
 import 'user_dashboard.dart';
 import 'admin_dashboard.dart';
+import 'garage_owner_page.dart';
 
 class AppDirector extends StatelessWidget {
   const AppDirector({super.key});
@@ -25,17 +26,41 @@ class AppDirector extends StatelessWidget {
             if (apiSnapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(body: Center(child: CircularProgressIndicator()));
             }
+            
+            if (apiSnapshot.hasError) {
+              return Scaffold(
+                body: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Text("Mumbai Server Error: ${apiSnapshot.error}\n\nTry 'flutter clean' and restart.", textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+                  ),
+                ),
+              );
+            }
 
             final role = apiSnapshot.data?['role'];
+            final intended = NavigationService.intendedEntry;
+            print('DEBUG: AppDirector Role: $role, Intended: $intended');
             
-            if (role == 'admin') {
-              return const AdminDashboard();
-            } else {
-              return const UserDashboard();
+            // 1. If explicit 'garage' entry was requested via button
+            if (intended == 'garage') {
+              return const GarageOwnerPage();
             }
+
+            // 2. If 'user' entry requested OR natural login
+            if (role == 'admin' && intended != 'garage') {
+              return const AdminDashboard();
+            }
+
+            // 3. Default for everyone else (including garage owners clicking 'user')
+            return const UserDashboard();
           },
         );
       },
     );
   }
+}
+
+class NavigationService {
+  static String? intendedEntry;
 }

@@ -10,11 +10,15 @@
     "logs": "firebase functions:log"
   },
   "engines": {
-    "node": "22"
+    "node": "20"
   },
   "main": "index.js",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1035.0",
+    "@aws-sdk/s3-request-presigner": "^3.1035.0",
     "@libsql/client": "^0.17.2",
+    "@smithy/node-http-handler": "^4.6.1",
+    "axios": "^1.15.2",
     "firebase-admin": "^13.6.0",
     "firebase-functions": "^7.0.0"
   },

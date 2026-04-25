@@ -1,104 +1,112 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:animate_do/animate_do.dart';
 import '../backend/auth_service.dart';
+import '../backend/app_theme.dart';
+import '../backend/api_service.dart';
 import 'inventory_page.dart';
+import 'admin_garage_requests_page.dart';
+import 'notifications_page.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    FadeInLeft(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Admin Terminal", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                          Text("Ecosystem Status: Online", style: TextStyle(color: Colors.greenAccent.withOpacity(0.7), fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                    FadeInRight(
-                      child: _buildGlassButton(
-                        icon: Icons.logout,
-                        onTap: () => AuthService().signOut(),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 40),
-                
-                // STATS ROW
-                Row(
-                  children: [
-                    Expanded(child: _buildStatCard("Platform Revenue", "\$ 124,500", Icons.payments, Colors.blueAccent)),
-                    const SizedBox(width: 16),
-                    Expanded(child: _buildStatCard("Active Jobs", "34 Total", Icons.engineering, Colors.orangeAccent)),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _buildInventoryNavCard(context),
-                const SizedBox(height: 28),
-                const Text("Central Control", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 20),
-                
-                // MAIN CONSOLE
-                Expanded(
-                  child: FadeInUp(
-                    child: Container(
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.02),
-                        borderRadius: BorderRadius.circular(32),
-                        border: Border.all(color: Colors.white.withOpacity(0.05)),
-                      ),
-                      child: Center(
+    return FutureBuilder<Map<String, dynamic>>(
+      future: ApiService().getInitialState(),
+      builder: (context, snapshot) {
+        final stats = snapshot.data?['data']?['stats'] ?? {'active_garages': 0};
+        final activeGarages = stats['active_garages']?.toString() ?? '0';
+
+        return Scaffold(
+          backgroundColor: AppTheme.background,
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      FadeInLeft(
                         child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(20),
-                              decoration: BoxDecoration(
-                                color: Colors.blueAccent.withOpacity(0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.shield_outlined, color: Colors.blueAccent, size: 40),
-                            ),
-                            const SizedBox(height: 16),
-                            const Text("Security Protocol Active", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 8),
-                            Text("No anomalies detected in the network", style: TextStyle(color: Colors.white.withOpacity(0.4))),
+                            const Text("ADMIN TERMINAL", style: TextStyle(color: AppTheme.textBody, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -1)),
+                            Text("ECOSYSTEM STATUS: ONLINE", style: AppTheme.monoStyle(color: AppTheme.success, fontSize: 10, fontWeight: FontWeight.bold)),
                           ],
+                        ),
+                      ),
+                      FadeInRight(
+                        child: Row(
+                          children: [
+                            _buildGlassButton(
+                              icon: Icons.notifications_none_rounded,
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsPage())),
+                            ),
+                            const SizedBox(width: 12),
+                            _buildGlassButton(
+                              icon: Icons.logout,
+                              onTap: () => AuthService().signOut(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 40),
+                  
+                  Row(
+                    children: [
+                      Expanded(child: _buildStatCard("Platform Revenue", "\$ 124,500", Icons.payments, AppTheme.info)),
+                      const SizedBox(width: 16),
+                      Expanded(child: _buildStatCard("Active Garages", "$activeGarages Units", Icons.store_rounded, AppTheme.warning)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _buildInventoryNavCard(context),
+                  const SizedBox(height: 16),
+                  _buildPartnerRequestsCard(context),
+                  const SizedBox(height: 32),
+                  Text("CENTRAL CONTROL", style: AppTheme.monoStyle(color: AppTheme.textMuted, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2)),
+                  const SizedBox(height: 20),
+                  
+                  Expanded(
+                    child: FadeInUp(
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          borderRadius: BorderRadius.circular(32),
+                          border: Border.all(color: AppTheme.surfaceLighter),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(color: AppTheme.primary.withOpacity(0.05), shape: BoxShape.circle),
+                                child: const Icon(Icons.shield_outlined, color: AppTheme.primary, size: 40),
+                              ),
+                              const SizedBox(height: 16),
+                              const Text("Security Protocol Active", style: TextStyle(color: AppTheme.textBody, fontSize: 20, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 8),
+                              Text("No anomalies detected in the network", style: TextStyle(color: AppTheme.textMuted)),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 24),
-              ],
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      }
     );
   }
 
@@ -107,18 +115,18 @@ class AdminDashboard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.03),
+          color: AppTheme.surface,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          border: Border.all(color: AppTheme.surfaceLighter),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(icon, color: accent.withOpacity(0.5), size: 24),
             const SizedBox(height: 16),
-            Text(value, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+            Text(value, style: AppTheme.monoStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12)),
+            Text(label.toUpperCase(), style: const TextStyle(color: AppTheme.textMuted, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1)),
           ],
         ),
       ),
@@ -126,34 +134,56 @@ class AdminDashboard extends StatelessWidget {
   }
 
   Widget _buildInventoryNavCard(BuildContext context) {
+    return _buildNavCard(
+      context,
+      title: "Inventory Control",
+      subtitle: "Monitor and adjust system stock",
+      icon: Icons.inventory_2_rounded,
+      accent: AppTheme.warning,
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const InventoryPage())),
+    );
+  }
+
+  Widget _buildPartnerRequestsCard(BuildContext context) {
+    return _buildNavCard(
+      context,
+      title: "Partner Requests",
+      subtitle: "Approve or reject garage owners",
+      icon: Icons.storefront_rounded,
+      accent: AppTheme.info,
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminGarageRequestsPage())),
+    );
+  }
+
+  Widget _buildNavCard(BuildContext context, {required String title, required String subtitle, required IconData icon, required Color accent, required VoidCallback onTap}) {
     return FadeInUp(
       child: GestureDetector(
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const InventoryPage())),
+        onTap: onTap,
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.04),
+            color: AppTheme.surface,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: AppTheme.surfaceLighter),
           ),
           child: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.orangeAccent.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
-                child: const Icon(Icons.inventory_2_rounded, color: Colors.orangeAccent),
+                decoration: BoxDecoration(color: accent.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+                child: Icon(icon, color: accent),
               ),
               const SizedBox(width: 20),
-              const Column(
+              Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Inventory Control", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                  Text("Monitor and adjust system stock", style: TextStyle(color: Colors.white30, fontSize: 11)),
+                  Text(title, style: const TextStyle(color: AppTheme.textBody, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(subtitle, style: const TextStyle(color: AppTheme.textMuted, fontSize: 11)),
                 ],
               ),
               const Spacer(),
-              const Text("Manage Stock →", style: TextStyle(color: Colors.orangeAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+              Icon(Icons.arrow_forward_ios_rounded, color: accent, size: 14),
             ],
           ),
         ),
@@ -162,22 +192,16 @@ class AdminDashboard extends StatelessWidget {
   }
 
   Widget _buildGlassButton({required IconData icon, required VoidCallback onTap}) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
-            ),
-            child: Icon(icon, color: Colors.white70, size: 20),
-          ),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.surfaceLighter),
         ),
+        child: Icon(icon, color: AppTheme.textBody, size: 20),
       ),
     );
   }
