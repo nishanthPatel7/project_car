@@ -1,83 +1,82 @@
 import 'package:flutter/material.dart';
 import 'package:animate_do/animate_do.dart';
-import '../backend/auth_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../backend/app_theme.dart';
 import '../backend/api_service.dart';
+import 'legal_pages.dart';
 
 class UserProfilePage extends StatelessWidget {
   const UserProfilePage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    const primaryOrange = Color(0xFFFF5C00);
-    const darkBg = Color(0xFF0A0A0A);
-    const cardBg = Color(0xFF1A1A1A);
-
     return Scaffold(
-      backgroundColor: darkBg,
+      backgroundColor: AppTheme.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppTheme.textBody, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text("Profile", style: TextStyle(color: Colors.white)),
+        title: const Text("MY PROFILE", style: TextStyle(color: AppTheme.textBody, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
         centerTitle: true,
       ),
       body: FutureBuilder<Map<String, dynamic>>(
         future: ApiService().getInitialState(),
         builder: (context, snapshot) {
-          final name = snapshot.data?['data']?['name'] ?? 'User Profile';
-          final photo = snapshot.data?['data']?['photo'] ?? '';
+          final name = snapshot.data?['data']?['name'] ?? 'User';
+          final email = snapshot.data?['data']?['email'] ?? '';
+          final initials = name.isNotEmpty ? name.split(' ').map((e) => e[0]).take(2).join().toUpperCase() : 'U';
           
-          return Padding(
+          return SingleChildScrollView(
             padding: const EdgeInsets.all(24.0),
             child: Column(
               children: [
-                // STARTING BLOCK (Identity)
+                // IDENTITY BLOCK
                 FadeInDown(
                   child: Column(
                     children: [
-                      Center(
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: primaryOrange, width: 2)),
-                          child: CircleAvatar(
-                            radius: 50,
-                            backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
-                            child: photo.isEmpty ? const Icon(Icons.person, size: 50) : null,
-                          ),
-                        ),
+                      CircleAvatar(
+                        radius: 50,
+                        backgroundColor: AppTheme.primary.withOpacity(0.1),
+                        child: Text(initials, style: const TextStyle(color: AppTheme.primary, fontSize: 32, fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(height: 16),
-                      Text(
-                        name,
-                        style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-                      ),
-                      const Text(
-                        "Garage Owner", 
-                        style: TextStyle(color: Colors.white54, fontSize: 14),
-                      ),
+                      Text(name, style: const TextStyle(color: AppTheme.textBody, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                      if (email.isNotEmpty) Text(email, style: const TextStyle(color: AppTheme.textMuted, fontSize: 14)),
                     ],
                   ),
                 ),
+                const SizedBox(height: 40),
+                
+                // ACCOUNT SECTION
+                _buildSectionHeader("LEGAL & ACCOUNT"),
+                const SizedBox(height: 12),
+                _buildMenuItem(context, Icons.description_outlined, "Terms & Conditions", () => Navigator.push(context, MaterialPageRoute(builder: (context) => const LegalPage(title: "TERMS & CONDITIONS", content: LegalContent.terms)))),
+                _buildMenuItem(context, Icons.privacy_tip_outlined, "Privacy Policy", () => Navigator.push(context, MaterialPageRoute(builder: (context) => const LegalPage(title: "PRIVACY POLICY", content: LegalContent.privacy)))),
+                _buildMenuItem(context, Icons.security_outlined, "Data Handling Policy", () => Navigator.push(context, MaterialPageRoute(builder: (context) => const LegalPage(title: "DATA POLICY", content: LegalContent.dataPolicy)))),
+                _buildMenuItem(context, Icons.delete_forever_rounded, "Delete My Account", () => Navigator.push(context, MaterialPageRoute(builder: (context) => const DeleteAccountPage())), isDestructive: true),
+                
                 const SizedBox(height: 48),
                 
-                // PROFILE MENU
-                _buildMenuItem(Icons.person_outline_rounded, "My Profile", cardBg),
-                _buildMenuItem(Icons.lock_outline_rounded, "Change Password", cardBg),
-                _buildMenuItem(Icons.notifications_none_rounded, "Notifications", cardBg),
-                _buildMenuItem(Icons.help_outline_rounded, "Help & Support", cardBg),
-                
-                const Spacer(),
-                
-                // LOGOUT BUTTON (AS PER IMAGE 14)
+                // LOGOUT
                 FadeInUp(
-                  child: TextButton.icon(
-                    style: TextButton.styleFrom(foregroundColor: primaryOrange),
-                    onPressed: () => AuthService().signOut(),
-                    icon: const Icon(Icons.logout_rounded),
-                    label: const Text("Logout", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => FirebaseAuth.instance.signOut(),
+                      icon: const Icon(Icons.logout_rounded),
+                      label: const Text("LOG OUT", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.surface,
+                        foregroundColor: AppTheme.danger,
+                        side: BorderSide(color: AppTheme.danger.withOpacity(0.3)),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -89,18 +88,27 @@ class UserProfilePage extends StatelessWidget {
     );
   }
 
-  Widget _buildMenuItem(IconData icon, String label, Color bg) {
+  Widget _buildSectionHeader(String title) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(title, style: const TextStyle(color: AppTheme.textMuted, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2)),
+    );
+  }
+
+  Widget _buildMenuItem(BuildContext context, IconData icon, String label, VoidCallback onTap, {bool isDestructive = false}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.white70, size: 22),
-          const SizedBox(width: 16),
-          Expanded(child: Text(label, style: const TextStyle(color: Colors.white))),
-          const Icon(Icons.chevron_right_rounded, color: Colors.white24),
-        ],
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.surfaceLighter, width: 0.5),
+      ),
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(icon, color: isDestructive ? AppTheme.danger : AppTheme.primary, size: 22),
+        title: Text(label, style: TextStyle(color: isDestructive ? AppTheme.danger : AppTheme.textBody, fontSize: 14, fontWeight: FontWeight.w500)),
+        trailing: const Icon(Icons.chevron_right_rounded, color: AppTheme.textMuted, size: 20),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }

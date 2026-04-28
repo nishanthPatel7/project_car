@@ -1,6 +1,8 @@
 import 'dart:typed_data';
+import 'dart:convert';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(region: 'asia-south1');
@@ -19,15 +21,38 @@ class ApiService {
     });
   }
 
-  Future<Map<String, dynamic>> getInitialState() async {
+  Future<Map<String, dynamic>> getInitialState({String? garageId}) async {
     try {
       final HttpsCallable callable = _functions.httpsCallable('getInitialState');
-      final result = await callable.call();
+      final result = await callable.call({'garageId': garageId}).timeout(const Duration(seconds: 10));
       if (result.data == null) return {};
-      return _deepCast(result.data as Map);
+      final data = _deepCast(result.data as Map);
+      
+      // Save to cache
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('initial_state_cache', jsonEncode(data));
+      
+      return data;
     } catch (e) {
-      return {'view': 'error', 'message': e.toString()};
+      print("ApiService Error: $e");
+      // Return cache if network fails or timeouts
+      final cached = await getCachedInitialState();
+      if (cached != null) return cached;
+      return {'view': 'error', 'message': "Connection Timeout. Please check your internet."};
     }
+  }
+
+  Future<Map<String, dynamic>?> getCachedInitialState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedStr = prefs.getString('initial_state_cache');
+      if (cachedStr != null) {
+        return jsonDecode(cachedStr) as Map<String, dynamic>;
+      }
+    } catch (e) {
+      print("Error reading cache: $e");
+    }
+    return null;
   }
 
   Future<Map<String, dynamic>> submitJob(Map<String, dynamic> data) async {
@@ -147,10 +172,25 @@ class ApiService {
       final HttpsCallable callable = _functions.httpsCallable('getGarageRequestStatus');
       final result = await callable.call();
       if (result.data == null) return {};
-      return _deepCast(result.data as Map);
+      final data = _deepCast(result.data as Map);
+      
+      // If we got multiple requests, the frontend might need to handle them
+      return data;
     } catch (e) {
       return {'status': 'error', 'message': e.toString()};
     }
+  }
+
+  Future<List<Map<String, dynamic>>> getAllGarageRequests() async {
+    final res = await getGarageRequestStatus();
+    if (res['status'] == 'success' && res['requests'] != null) {
+      return List<Map<String, dynamic>>.from(res['requests'] as List);
+    }
+    // Backward compatibility if backend only returns one 'request'
+    if (res['status'] == 'success' && res['request'] != null) {
+      return [Map<String, dynamic>.from(res['request'] as Map)];
+    }
+    return [];
   }
 
   Future<Map<String, dynamic>> getGarageRequestsAdmin() async {
@@ -175,9 +215,20 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getGarageJobs() async {
+  Future<Map<String, dynamic>> getGarageJobs({String? garageId}) async {
     try {
-      final HttpsCallable callable = _functions.httpsCallable('getGarageJobs');
+      final HttpsCallable callable = _functions.httpsCallable('getGarageJobsV2');
+      final result = await callable.call({'garageId': garageId});
+      if (result.data == null) return {};
+      return _deepCast(result.data as Map);
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> getUserJobs() async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('getUserJobs');
       final result = await callable.call();
       if (result.data == null) return {};
       return _deepCast(result.data as Map);
@@ -186,10 +237,10 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getNotifications() async {
+  Future<Map<String, dynamic>> getNotifications({String module = 'user'}) async {
     try {
       final HttpsCallable callable = _functions.httpsCallable('getNotifications');
-      final result = await callable.call();
+      final result = await callable.call({'module': module});
       if (result.data == null) return {};
       return _deepCast(result.data as Map);
     } catch (e) {
@@ -201,6 +252,37 @@ class ApiService {
     try {
       final HttpsCallable callable = _functions.httpsCallable('generateInvoiceNo');
       final result = await callable.call();
+      if (result.data == null) return {};
+      return _deepCast(result.data as Map);
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  Future<void> markNotificationsAsRead({String module = 'user'}) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('markNotificationsAsRead');
+      await callable.call({'module': module});
+    } catch (e) {
+      print("Error marking notifications as read: $e");
+    }
+  }
+
+  Future<Map<String, dynamic>> getApprovedGarages() async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('getApprovedGarages');
+      final result = await callable.call();
+      if (result.data == null) return {};
+      return _deepCast(result.data as Map);
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateJobStatus(int jobId, String status, {Map<String, dynamic>? pricing}) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('updateJobStatus');
+      final result = await callable.call({'jobId': jobId, 'status': status, 'pricing': pricing});
       if (result.data == null) return {};
       return _deepCast(result.data as Map);
     } catch (e) {

@@ -217,18 +217,19 @@ class _AdminGarageRequestsPageState extends State<AdminGarageRequestsPage> {
               const SizedBox(height: 32),
               Text("PARTNER APPLICATION", style: AppTheme.monoStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
-              Text(req['name'] ?? "No Name", style: const TextStyle(color: AppTheme.textBody, fontSize: 28, fontWeight: FontWeight.bold)),
+              Text(req['name'] ?? "No Store Name", style: const TextStyle(color: AppTheme.textBody, fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 32),
               
               _buildDetailSection("Contact Info", [
+                {"icon": Icons.person, "label": "Owner Name", "val": req['owner_name'] ?? "N/A"},
                 {"icon": Icons.phone, "label": "Phone", "val": req['phone'] ?? "N/A"},
-                {"icon": Icons.badge, "label": "Aadhaar", "val": req['aadhaar'] ?? "N/A"},
               ]),
               
               const SizedBox(height: 24),
-              _buildDetailSection("Business Location", [
+              _buildDetailSection("Business Details", [
                 {"icon": Icons.location_city, "label": "City", "val": req['city'] ?? "N/A"},
                 {"icon": Icons.map, "label": "District / State", "val": "${req['district']}, ${req['state']}"},
+                if (req['partner_id'] != null) {"icon": Icons.verified_user_rounded, "label": "Partner ID", "val": req['partner_id'].toString().toUpperCase()},
                 {"icon": Icons.my_location, "label": "Coordinates", "val": req['location'] ?? "N/A"},
               ]),
 

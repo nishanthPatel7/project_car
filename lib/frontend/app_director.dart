@@ -5,6 +5,7 @@ import 'login_page.dart';
 import 'user_dashboard.dart';
 import 'admin_dashboard.dart';
 import 'garage_owner_page.dart';
+import 'loading_screen.dart';
 
 class AppDirector extends StatelessWidget {
   const AppDirector({super.key});
@@ -24,7 +25,7 @@ class AppDirector extends StatelessWidget {
           future: ApiService().getInitialState(),
           builder: (context, apiSnapshot) {
             if (apiSnapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(body: Center(child: CircularProgressIndicator()));
+              return const CustomLoadingScreen();
             }
             
             if (apiSnapshot.hasError) {

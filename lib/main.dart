@@ -6,6 +6,7 @@ import 'firebase_options.dart';
 import 'backend/app_theme.dart';
 import 'frontend/login_page.dart';
 import 'frontend/app_director.dart';
+import 'frontend/loading_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,7 +22,7 @@ class MultiPlatformApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Project Car Platform',
+      title: 'AutoNex',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const AuthWrapper(),
@@ -38,9 +39,7 @@ class AuthWrapper extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const CustomLoadingScreen();
         }
         if (snapshot.hasData) {
           // Instead of HomePage, we use the Director

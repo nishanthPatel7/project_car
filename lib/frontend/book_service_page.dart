@@ -3,6 +3,8 @@ import 'package:animate_do/animate_do.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../backend/api_service.dart';
+import '../backend/app_theme.dart';
+
 
 class BookServicePage extends StatefulWidget {
   const BookServicePage({super.key});
@@ -25,6 +27,12 @@ class _BookServicePageState extends State<BookServicePage> {
   String? _serviceError;
   String? _addressError;
   bool _isFetchingLocation = false;
+  List _allGarages = [];
+  List _filteredGarages = [];
+  String? _selectedGarageId;
+  bool _isLoadingGarages = true;
+  final TextEditingController _garageSearchController = TextEditingController();
+  String? _garageError;
 
   final Map<String, List<String>> _topBrands = {
     'Car': [
@@ -63,6 +71,32 @@ class _BookServicePageState extends State<BookServicePage> {
   void initState() {
     super.initState();
     _loadVehicles();
+    _loadGarages();
+  }
+
+  void _loadGarages() async {
+    final res = await ApiService().getApprovedGarages();
+    if (mounted) {
+      setState(() {
+        _allGarages = res['garages'] ?? [];
+        _filteredGarages = _allGarages;
+        _isLoadingGarages = false;
+      });
+    }
+  }
+
+  void _filterGarages(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredGarages = _allGarages;
+      } else {
+        _filteredGarages = _allGarages.where((g) {
+          final name = g['name']?.toString().toLowerCase() ?? "";
+          final city = g['city']?.toString().toLowerCase() ?? "";
+          return name.contains(query.toLowerCase()) || city.contains(query.toLowerCase());
+        }).toList();
+      }
+    });
   }
 
   void _loadVehicles() async {
@@ -95,9 +129,15 @@ class _BookServicePageState extends State<BookServicePage> {
       _vehicleError = null;
       _serviceError = null;
       _addressError = null;
+      _garageError = null;
     });
 
     bool hasError = false;
+
+    if (_selectedGarageId == null) {
+      setState(() => _garageError = "Please select a garage");
+      hasError = true;
+    }
 
     if (_selectedVehicleId == 'new') {
       if (_selectedBrand == null || _vehicleController.text.isEmpty) {
@@ -125,6 +165,9 @@ class _BookServicePageState extends State<BookServicePage> {
 
     setState(() => _isSubmitting = true);
 
+    final selectedGarage = _allGarages.firstWhere((g) => (g['partner_id'] ?? g['user_uid']) == _selectedGarageId);
+    final garageName = selectedGarage['name'] ?? "Partner Garage";
+
     final result = await ApiService().submitJob({
       'vehicleNo': _vehicleController.text,
       'problemDesc': _issueController.text,
@@ -133,6 +176,9 @@ class _BookServicePageState extends State<BookServicePage> {
       'address': _serviceMode == 'Pickup' ? _addressController.text : null,
       'vehicleType': _vehicleType,
       'brand': _selectedBrand ?? "",
+      'garage_uid': _selectedGarageId,
+      'garage_name': garageName,
+      'garageName': garageName,
     });
 
     setState(() => _isSubmitting = false);
@@ -305,6 +351,49 @@ class _BookServicePageState extends State<BookServicePage> {
                   ],
                 ),
               ),
+              const SizedBox(height: 32),
+              
+              // Garage Selection
+              _buildLabel("5) Choose Garage", error: _garageError),
+              const SizedBox(height: 12),
+              
+              if (_isLoadingGarages)
+                const Center(child: CircularProgressIndicator(color: primaryOrange))
+              else ...[
+                // Search Bar
+                FadeInUp(
+                  duration: const Duration(milliseconds: 500),
+                  child: _buildTextField(
+                    _garageSearchController, 
+                    "Search garage by name or city...", 
+                    Icons.search_rounded,
+                    required: false,
+                    onChanged: _filterGarages,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // Garage List
+                FadeInUp(
+                  duration: const Duration(milliseconds: 600),
+                  child: _filteredGarages.isEmpty
+                    ? Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(16)),
+                        child: const Center(child: Text("No approved garages found", style: TextStyle(color: Colors.white38))),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _filteredGarages.length,
+                        separatorBuilder: (context, index) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final garage = _filteredGarages[index];
+                          return _buildGarageCard(garage);
+                        },
+                      ),
+                ),
+              ],
               
               const SizedBox(height: 48),
 
@@ -439,11 +528,12 @@ class _BookServicePageState extends State<BookServicePage> {
     }
   }
 
-  Widget _buildTextField(TextEditingController controller, String hint, IconData icon, {int maxLines = 1, bool enabled = true, bool required = true, Widget? suffix}) {
+  Widget _buildTextField(TextEditingController controller, String hint, IconData icon, {int maxLines = 1, bool enabled = true, bool required = true, Widget? suffix, Function(String)? onChanged}) {
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
       enabled: enabled,
+      onChanged: onChanged,
       style: TextStyle(color: enabled ? Colors.white : Colors.white38),
       validator: (v) => (required && (v == null || v.isEmpty)) ? "Required" : null,
       decoration: InputDecoration(
@@ -569,6 +659,77 @@ class _BookServicePageState extends State<BookServicePage> {
                 fontWeight: isSelected ? FontWeight.w900 : FontWeight.normal,
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGarageCard(Map garage) {
+    final String gId = garage['partner_id'] ?? garage['user_uid'] ?? "";
+    bool isSelected = _selectedGarageId == gId;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedGarageId = gId),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? primaryOrange : Colors.white10, width: 2),
+        ),
+        child: Row(
+          children: [
+            // Garage Image (Thumbnail)
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(12),
+                image: (garage['photo_urls'] != null && (garage['photo_urls'] as List).isNotEmpty)
+                  ? DecorationImage(image: NetworkImage(garage['photo_urls'][0]), fit: BoxFit.cover)
+                  : null,
+              ),
+              child: (garage['photo_urls'] == null || (garage['photo_urls'] as List).isEmpty)
+                ? const Icon(Icons.garage_rounded, color: Colors.white24)
+                : null,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    garage['name'] ?? "Unnamed Garage",
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on_rounded, color: primaryOrange, size: 12),
+                      const SizedBox(width: 4),
+                      Text(
+                        "${garage['city']}, ${garage['district']}",
+                        style: const TextStyle(color: Colors.white38, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    "Owner: ${garage['owner_name']}",
+                    style: const TextStyle(color: Colors.white24, fontSize: 10),
+                  ),
+                  if (garage['partner_id'] != null)
+                    Text(
+                      "ID: ${garage['partner_id']}",
+                      style: AppTheme.monoStyle(color: primaryOrange.withOpacity(0.5), fontSize: 9, fontWeight: FontWeight.bold),
+                    ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.check_circle_rounded, color: primaryOrange),
           ],
         ),
       ),

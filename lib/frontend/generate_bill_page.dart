@@ -10,7 +10,8 @@ import 'dart:io';
 import 'dart:math';
 
 class GenerateBillPage extends StatefulWidget {
-  const GenerateBillPage({super.key});
+  final String? garageId;
+  const GenerateBillPage({super.key, this.garageId});
 
   @override
   State<GenerateBillPage> createState() => _GenerateBillPageState();
@@ -19,9 +20,10 @@ class GenerateBillPage extends StatefulWidget {
 class _GenerateBillPageState extends State<GenerateBillPage> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _vehicleController = TextEditingController();
+  final TextEditingController _customerNameController = TextEditingController();
   final TextEditingController _issueController = TextEditingController();
   final List<String> _selectedServices = [];
-  final Map<String, int> _serviceCosts = {};
+  final Map<String, Map<String, int>> _serviceCosts = {}; // { 'Service': { 'cost': 100, 'qty': 1 } }
   bool _isSubmitting = false;
   String _vehicleType = 'Car';
   String? _selectedBrand;
@@ -60,7 +62,7 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
     'Bike': ['Hero MotoCorp', 'Honda', 'TVS', 'Bajaj Auto', 'Royal Enfield', 'Suzuki', 'Yamaha', 'KTM', 'Jawa', 'Kawasaki']
   };
 
-  int get _totalAmount => _serviceCosts.values.fold(0, (sum, val) => sum + val);
+  int get _totalAmount => _serviceCosts.values.fold(0, (sum, val) => sum + ((val['cost'] ?? 0) * (val['qty'] ?? 1)));
 
   @override
   Widget build(BuildContext context) {
@@ -119,6 +121,8 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
                         const SizedBox(height: 16),
                         _buildBrandDropdown(),
                         const SizedBox(height: 16),
+                        _buildTextField(_customerNameController, "Customer Name", Icons.person_rounded),
+                        const SizedBox(height: 16),
                         _buildTextField(_vehicleController, "Vehicle Number", Icons.confirmation_number_rounded),
                       ],
                     ),
@@ -161,9 +165,9 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
                       decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.surfaceLighter)),
                       child: Column(
                         children: [
-                          ..._selectedServices.map((s) => _buildSummaryRow(s, _serviceCosts[s] ?? 0)),
+                          ..._selectedServices.map((s) => _buildSummaryRow(s, _serviceCosts[s])),
                           const Divider(color: AppTheme.surfaceLighter, height: 24),
-                          _buildSummaryRow("GRAND TOTAL", _totalAmount, isBold: true),
+                          _buildSummaryRow("GRAND TOTAL", null, isBold: true, totalOverride: _totalAmount),
                         ],
                       ),
                     ),
@@ -205,14 +209,26 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
     );
   }
 
-  Widget _buildSummaryRow(String label, int val, {bool isBold = false}) {
+  Widget _buildSummaryRow(String label, Map<String, int>? details, {bool isBold = false, int? totalOverride}) {
+    final cost = details?['cost'] ?? 0;
+    final qty = details?['qty'] ?? 1;
+    final total = totalOverride ?? (cost * qty);
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(color: isBold ? AppTheme.textBody : AppTheme.textMuted, fontSize: 13, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
-          Text("₹$val", style: AppTheme.monoStyle(color: isBold ? AppTheme.primary : AppTheme.textBody, fontSize: 14, fontWeight: FontWeight.bold)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(color: isBold ? AppTheme.textBody : AppTheme.textMuted, fontSize: 13, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+                if (!isBold) Text("₹$cost x $qty", style: const TextStyle(color: AppTheme.textMuted, fontSize: 10)),
+              ],
+            ),
+          ),
+          Text("₹$total", style: AppTheme.monoStyle(color: isBold ? AppTheme.primary : AppTheme.textBody, fontSize: 14, fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -220,32 +236,68 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
 
   Widget _buildServiceWithCostTile(String name, IconData icon) {
     bool isSelected = _selectedServices.contains(name);
+    int qty = _serviceCosts[name]?['qty'] ?? 1;
+
     return GestureDetector(
       onTap: () => _toggleService(name),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? AppTheme.primary.withOpacity(0.1) : AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: isSelected ? AppTheme.primary : AppTheme.surfaceLighter),
         ),
-        child: Row(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: isSelected ? AppTheme.primary : AppTheme.textMuted, size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: isSelected 
-                ? TextField(
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: AppTheme.textBody, fontSize: 13, fontWeight: FontWeight.bold),
-                    decoration: const InputDecoration(hintText: "Cost", hintStyle: TextStyle(color: AppTheme.textMuted, fontSize: 12), border: InputBorder.none),
-                    onChanged: (val) => setState(() => _serviceCosts[name] = int.tryParse(val) ?? 0),
-                  )
-                : Text(name, style: const TextStyle(color: AppTheme.textMuted, fontSize: 12)),
+            Row(
+              children: [
+                Icon(icon, color: isSelected ? AppTheme.primary : AppTheme.textMuted, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: isSelected 
+                    ? TextField(
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(color: AppTheme.textBody, fontSize: 13, fontWeight: FontWeight.bold),
+                        decoration: const InputDecoration(hintText: "Cost", hintStyle: TextStyle(color: AppTheme.textMuted, fontSize: 11), border: InputBorder.none, isDense: true),
+                        onChanged: (val) => setState(() => _serviceCosts[name]?['cost'] = int.tryParse(val) ?? 0),
+                      )
+                    : Text(name, style: const TextStyle(color: AppTheme.textMuted, fontSize: 11), overflow: TextOverflow.ellipsis),
+                ),
+              ],
             ),
+            if (isSelected) ...[
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildQtyBtn(Icons.remove, () {
+                    if (qty > 1) setState(() => _serviceCosts[name]?['qty'] = qty - 1);
+                  }),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(qty.toString(), style: AppTheme.monoStyle(color: AppTheme.textBody, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                  _buildQtyBtn(Icons.add, () {
+                    setState(() => _serviceCosts[name]?['qty'] = qty + 1);
+                  }),
+                ],
+              ),
+            ]
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildQtyBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(color: AppTheme.surfaceLighter, borderRadius: BorderRadius.circular(4)),
+        child: Icon(icon, size: 14, color: AppTheme.textBody),
       ),
     );
   }
@@ -271,7 +323,7 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
                 setState(() {
                   _serviceItems.add({'name': customName, 'icon': Icons.add_to_photos_rounded});
                   _selectedServices.add(customName);
-                  _serviceCosts[customName] = 0;
+                  _serviceCosts[customName] = {'cost': 0, 'qty': 1};
                 });
               }
               Navigator.pop(context);
@@ -290,7 +342,7 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
         _serviceCosts.remove(service);
       } else {
         _selectedServices.add(service);
-        _serviceCosts[service] = 0;
+        _serviceCosts[service] = {'cost': 0, 'qty': 1};
       }
     });
   }
@@ -331,15 +383,22 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
                       decoration: const pw.BoxDecoration(color: PdfColors.grey100),
                       children: [
                         pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text("Service Name", style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
-                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text("Cost (INR)", style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text("Rate", style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text("Qty", style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text("Amount (INR)", style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
                       ],
                     ),
-                    ..._selectedServices.map((s) => pw.TableRow(
-                      children: [
-                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text(s)),
-                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text("Rs. ${_serviceCosts[s]}")),
-                      ],
-                    )),
+                    ..._selectedServices.map((s) {
+                      final item = _serviceCosts[s]!;
+                      return pw.TableRow(
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text(s)),
+                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text("Rs. ${item['cost']}")),
+                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text("${item['qty']}")),
+                          pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text("Rs. ${item['cost']! * item['qty']!}")),
+                        ],
+                      );
+                    }),
                   ],
                 ),
                 pw.SizedBox(height: 30),
@@ -389,6 +448,7 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
     
     final result = await ApiService().submitJob({
       'vehicleNo': _vehicleController.text,
+      'customerName': _customerNameController.text.isEmpty ? "Customer" : _customerNameController.text,
       'problemDesc': _issueController.text,
       'serviceTypes': _selectedServices,
       'mode': 'Walk-in',
@@ -398,6 +458,7 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
       'totalAmount': _totalAmount,
       'costDetails': _serviceCosts,
       'invoiceNo': _invoiceNo,
+      'garage_uid': widget.garageId,
     });
 
     setState(() => _isSubmitting = false);

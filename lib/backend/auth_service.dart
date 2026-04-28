@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../frontend/app_director.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -37,9 +38,10 @@ class AuthService {
 
   // Sign Out
   Future<void> signOut() async {
+    // Clear stale role selection so it doesn't carry over to next login
+    NavigationService.intendedEntry = null;
     try {
       await _googleSignIn.signOut();
-      await _googleSignIn.disconnect();
     } catch (_) {} // Handle cases where not signed in with Google
     await _auth.signOut();
   }

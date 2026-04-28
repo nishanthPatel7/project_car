@@ -4,6 +4,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:intl/intl.dart';
 
 class PdfHelper {
   static Future<void> generateJobInvoice(Map<String, dynamic> job) async {
@@ -51,7 +52,7 @@ class PdfHelper {
                       pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
-                          pw.Text("MechDesk", style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.white)),
+                          pw.Text("AutoNex", style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: PdfColors.white)),
                           pw.Text("AUTOMOTIVE SERVICES", style: pw.TextStyle(fontSize: 10, color: PdfColors.grey400, letterSpacing: 1.5)),
                         ],
                       ),
@@ -61,7 +62,7 @@ class PdfHelper {
                           pw.Text("SERVICE INVOICE", style: pw.TextStyle(fontSize: 20, color: PdfColors.white, fontWeight: pw.FontWeight.bold)),
                           pw.SizedBox(height: 10),
                           pw.Text("Invoice No: #${job['invoice_no'] ?? 'N/A'}", style: pw.TextStyle(fontSize: 11, color: PdfColors.grey300)),
-                          pw.Text("Date: $dateStr · $timeStr", style: pw.TextStyle(fontSize: 11, color: PdfColors.grey300)),
+                          pw.Text("Generated on: ${DateFormat('dd MMM yyyy · hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(job['created_at'] ?? 0))}", style: pw.TextStyle(fontSize: 10, color: PdfColors.grey300)),
                         ],
                       ),
                     ],
@@ -81,11 +82,6 @@ class PdfHelper {
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
                       pw.Text("Service completed on $dateStr", style: pw.TextStyle(fontSize: 11, color: ink3)),
-                      pw.Container(
-                        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: pw.BoxDecoration(color: PdfColors.green50, borderRadius: pw.BorderRadius.circular(100)),
-                        child: pw.Text("PAID", style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.green700)),
-                      ),
                     ],
                   ),
                 ),
@@ -102,7 +98,7 @@ class PdfHelper {
                         children: [
                           pw.Expanded(
                             child: _buildInfoSection("Customer Details", [
-                              _buildInfoRow(ink, ink3, "Name", job['display_name'] ?? "Unknown"),
+                              _buildInfoRow(ink, ink3, "Name", job['display_name'] ?? job['customer_name'] ?? job['customerName'] ?? "AutoNex Customer"),
                               _buildInfoRow(ink, ink3, "Vehicle", "${job['brand'] ?? ''} $vehicleNo"),
                               _buildInfoRow(ink, ink3, "Model", job['vehicle_type'] ?? "Car"),
                             ]),
@@ -110,9 +106,10 @@ class PdfHelper {
                           pw.SizedBox(width: 40),
                           pw.Expanded(
                             child: _buildInfoSection("Garage Details", [
-                              _buildInfoRow(ink, ink3, "Garage", "MechDesk Partner"),
-                              _buildInfoRow(ink, ink3, "Service", "Standard/Walk-in"),
-                              _buildInfoRow(ink, ink3, "City", "Bengaluru, IN"),
+                              _buildInfoRow(ink, ink3, "Garage", job['garage_name'] ?? job['garageName'] ?? job['garage'] ?? "Partner Garage"),
+                              _buildInfoRow(ink, ink3, "Service", job['mode'] ?? "Standard"),
+                              _buildInfoRow(ink, ink3, "Address", "${job['garage_city'] ?? ''}${job['garage_city'] != null ? ', ' : ''}${job['garage_district'] ?? ''}"),
+                              _buildInfoRow(ink, ink3, "State", job['garage_state'] ?? "India"),
                             ]),
                           ),
                         ],
@@ -132,12 +129,19 @@ class PdfHelper {
                               pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text("AMOUNT", style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: ink2), textAlign: pw.TextAlign.right)),
                             ],
                           ),
-                          ...services.map((s) => pw.TableRow(
-                            children: [
-                              pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text(s.toString(), style: const pw.TextStyle(fontSize: 12, color: ink))),
-                              pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text("₹${costs[s] ?? 0}", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: ink), textAlign: pw.TextAlign.right)),
-                            ],
-                          )),
+                          ...services.map((s) {
+                            final item = costs[s];
+                            final price = item is Map 
+                              ? (int.tryParse(item['cost'].toString()) ?? 0) * (int.tryParse(item['qty'].toString()) ?? 1)
+                              : (int.tryParse(item.toString()) ?? 0);
+
+                            return pw.TableRow(
+                              children: [
+                                pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text(s.toString(), style: const pw.TextStyle(fontSize: 12, color: ink))),
+                                pw.Padding(padding: const pw.EdgeInsets.all(10), child: pw.Text("Rs. $price", style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: ink), textAlign: pw.TextAlign.right)),
+                              ],
+                            );
+                          }),
                         ],
                       ),
 
@@ -154,7 +158,7 @@ class PdfHelper {
                               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                               children: [
                                 pw.Text("GRAND TOTAL", style: pw.TextStyle(color: PdfColors.grey300, fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                                pw.Text("₹${job['total_amount'] ?? 0}", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 22)),
+                                pw.Text("Rs. ${job['total_amount'] ?? 0}", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 22)),
                               ],
                             ),
                           ),
@@ -177,9 +181,9 @@ class PdfHelper {
                           pw.Column(
                             crossAxisAlignment: pw.CrossAxisAlignment.start,
                             children: [
-                              pw.Text("Thank you for choosing MechDesk!", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: ink)),
+                              pw.Text("Thank you for choosing AutoNex!", style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: ink)),
                               pw.SizedBox(height: 4),
-                              pw.Text("Official Invoice generated via MechDesk Terminal.", style: pw.TextStyle(fontSize: 10, color: ink3)),
+                              pw.Text("Official Invoice generated via AutoNex Terminal.", style: pw.TextStyle(fontSize: 10, color: ink3)),
                             ],
                           ),
                           pw.Text("Powered by Mastech", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: accent)),
