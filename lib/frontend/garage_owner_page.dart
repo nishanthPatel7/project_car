@@ -186,9 +186,9 @@ class _GarageOwnerPageState extends State<GarageOwnerPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildDailyOverview(stats),
-                        const SizedBox(height: 24),
                         _buildLifetimeOverview(stats),
+                        const SizedBox(height: 24),
+                        _buildDailyOverview(stats),
                         const SizedBox(height: 32),
                         
                         _buildSectionHeader("New Requests", (data?['newJobs'] as List?)?.length ?? 0),
@@ -449,10 +449,48 @@ class _GarageOwnerPageState extends State<GarageOwnerPage> {
   }
 
   void _showDetailsModal(BuildContext context, Map<String, dynamic> job) {
-    final List<dynamic> services = jsonDecode(job['service_types'] ?? '[]');
+    var rawServices = job['service_types'] ?? '[]';
+    var decodedServices = rawServices is String ? jsonDecode(rawServices) : rawServices;
+    if (decodedServices is String) {
+      try {
+        final nested = jsonDecode(decodedServices);
+        if (nested is List) decodedServices = nested;
+      } catch (e) {}
+    }
+    final List services = decodedServices is List ? decodedServices : [decodedServices.toString()];
     final isNew = job['status'] == 'pending';
     final isWorking = job['status'] == 'working';
     bool isTransitioning = false;
+
+    // Parse saved cost details with resilient logic
+    Map<String, dynamic> savedCosts = {};
+    if (job['cost_details'] != null && job['cost_details'].toString().isNotEmpty) {
+      try {
+        var rawCosts = job['cost_details'];
+        var decoded = rawCosts is String ? jsonDecode(rawCosts) : rawCosts;
+        
+        // Handle double-encoding
+        if (decoded is String) {
+          try {
+            final nested = jsonDecode(decoded);
+            if (nested is List || nested is Map) decoded = nested;
+          } catch (e) {}
+        }
+        
+        if (decoded is List) {
+          for (var item in decoded) {
+            if (item is Map) savedCosts[item['name'].toString()] = item['cost'];
+          }
+        } else if (decoded is Map) {
+          savedCosts = Map<String, dynamic>.from(decoded);
+        }
+      } catch (e) {
+        debugPrint("Error parsing cost_details: $e");
+      }
+    }
+
+    final vehicleType = (job['vehicle_type'] ?? job['vehicleType'] ?? 'car').toString().toLowerCase();
+    final vehicleIcon = vehicleType.contains('bike') ? Icons.pedal_bike_rounded : Icons.directions_car_rounded;
 
     showModalBottomSheet(
       context: context,
@@ -478,7 +516,12 @@ class _GarageOwnerPageState extends State<GarageOwnerPage> {
                       const Text("JOB SUMMARY", style: TextStyle(color: AppTheme.textBody, fontSize: 20, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 24),
                       _buildDetailRow(Icons.person_rounded, "Customer", job['display_name'] ?? "Unknown"),
-                      _buildDetailRow(Icons.directions_car_rounded, "Vehicle", "${job['brand'] ?? ''} ${job['vehicle_no'] ?? ''}"),
+                      _buildDetailRow(vehicleIcon, "Vehicle", "${job['brand'] ?? ''} ${job['vehicle_no'] ?? ''}"),
+                      _buildDetailRow(Icons.access_time_rounded, "Booking Time", DateTime.fromMillisecondsSinceEpoch(job['created_at'] ?? 0).toString().split('.')[0].substring(0, 16)),
+                      _buildDetailRow(Icons.room_service_rounded, "Mode", job['service_mode'] ?? job['serviceMode'] ?? "Walk-in"),
+                      if ((job['service_mode'] ?? job['serviceMode']) == 'Pickup')
+                        _buildDetailRow(Icons.location_on_rounded, "Address", job['address'] ?? "No address provided"),
+                      
                       const SizedBox(height: 24),
                       const Text("REQUESTED SERVICES", style: TextStyle(color: AppTheme.textMuted, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                       const SizedBox(height: 16),
@@ -488,16 +531,42 @@ class _GarageOwnerPageState extends State<GarageOwnerPage> {
                         decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(24), border: Border.all(color: AppTheme.surfaceLighter)),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: services.isEmpty ? [const Text("No services recorded")] : services.map((s) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.check_circle_outline_rounded, color: AppTheme.primary, size: 16),
-                                const SizedBox(width: 12),
-                                Text(s.toString(), style: const TextStyle(color: AppTheme.textBody)),
-                              ],
-                            ),
-                          )).toList(),
+                          children: [
+                            if (services.isEmpty) 
+                              const Text("No services recorded")
+                            else 
+                              for (var s in services) Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.check_circle_outline_rounded, color: AppTheme.primary, size: 16),
+                                    const SizedBox(width: 12),
+                                    Expanded(child: Text(s.toString(), style: const TextStyle(color: AppTheme.textBody))),
+                                    if (savedCosts.containsKey(s.toString()))
+                                      Text("₹${savedCosts[s.toString()]}", style: AppTheme.monoStyle(color: AppTheme.textMuted, fontSize: 13)),
+                                  ],
+                                ),
+                              ),
+                            if (job['total_amount'] != null && job['total_amount'] > 0) ...[
+                              const Divider(height: 32, color: AppTheme.surfaceLighter),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text("ESTIMATED TOTAL", style: TextStyle(color: AppTheme.textMuted, fontSize: 10, fontWeight: FontWeight.bold)),
+                                      Text(
+                                        "(Includes 5% Tax: ₹${((job['total_amount'] ?? 0) * 0.05 / 1.05).toStringAsFixed(0)})", 
+                                        style: const TextStyle(color: AppTheme.textMuted, fontSize: 8)
+                                      ),
+                                    ],
+                                  ),
+                                  Text("₹${job['total_amount']}", style: AppTheme.monoStyle(color: AppTheme.primary, fontSize: 18, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                       const SizedBox(height: 48),
@@ -562,7 +631,38 @@ class _GarageOwnerPageState extends State<GarageOwnerPage> {
   }
 
   void _showPricingModal(BuildContext context, Map<String, dynamic> job, List services) {
-    Map<String, TextEditingController> controllers = {for (var s in services) s.toString(): TextEditingController()};
+    // Parse saved cost details if they exist
+    // Parse saved cost details with resilient logic
+    Map<String, dynamic> savedCosts = {};
+    if (job['cost_details'] != null && job['cost_details'].toString().isNotEmpty) {
+      try {
+        var rawCosts = job['cost_details'];
+        var decoded = rawCosts is String ? jsonDecode(rawCosts) : rawCosts;
+        
+        // Handle double-encoding
+        if (decoded is String) {
+          try {
+            final nested = jsonDecode(decoded);
+            if (nested is List || nested is Map) decoded = nested;
+          } catch (e) {}
+        }
+        
+        if (decoded is List) {
+          for (var item in decoded) {
+            if (item is Map) savedCosts[item['name'].toString()] = item['cost'];
+          }
+        } else if (decoded is Map) {
+          savedCosts = Map<String, dynamic>.from(decoded);
+        }
+      } catch (e) {
+        debugPrint("Error parsing cost_details in pricing modal: $e");
+      }
+    }
+
+    Map<String, TextEditingController> controllers = {
+      for (var s in services) 
+        s.toString(): TextEditingController(text: savedCosts.containsKey(s.toString()) ? savedCosts[s.toString()].toString() : "")
+    };
     bool isSubmitting = false;
 
     showModalBottomSheet(
@@ -579,9 +679,9 @@ class _GarageOwnerPageState extends State<GarageOwnerPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text("ENTER MANUAL PRICING", style: TextStyle(color: AppTheme.textBody, fontSize: 20, fontWeight: FontWeight.bold)),
+                const Text("CONFIRM PRICING", style: TextStyle(color: AppTheme.textBody, fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                const Text("Set final rates for each service performed.", style: TextStyle(color: AppTheme.textMuted, fontSize: 12)),
+                const Text("Pre-filled from booking. Adjust only if needed.", style: TextStyle(color: AppTheme.textMuted, fontSize: 12)),
                 const SizedBox(height: 32),
                 ...services.map((s) => Padding(
                   padding: const EdgeInsets.only(bottom: 16),
@@ -594,6 +694,7 @@ class _GarageOwnerPageState extends State<GarageOwnerPage> {
                         child: TextField(
                           controller: controllers[s],
                           keyboardType: TextInputType.number,
+                          onChanged: (_) => setModalState(() {}), // Refresh for live total
                           textAlign: TextAlign.right,
                           style: AppTheme.monoStyle(color: AppTheme.primary, fontWeight: FontWeight.bold),
                           decoration: InputDecoration(
@@ -607,6 +708,27 @@ class _GarageOwnerPageState extends State<GarageOwnerPage> {
                     ],
                   ),
                 )),
+                const Divider(height: 48, color: AppTheme.surfaceLighter),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("FINAL BILL AMOUNT", style: TextStyle(color: AppTheme.textMuted, fontSize: 10, fontWeight: FontWeight.bold)),
+                        Text("(Includes 5% Tax)", style: const TextStyle(color: AppTheme.textMuted, fontSize: 8)),
+                      ],
+                    ),
+                    Builder(
+                      builder: (context) {
+                        int subtotal = 0;
+                        controllers.forEach((k, v) => subtotal += int.tryParse(v.text) ?? 0);
+                        int finalTotal = (subtotal * 1.05).round();
+                        return Text("₹$finalTotal", style: AppTheme.monoStyle(color: AppTheme.success, fontSize: 24, fontWeight: FontWeight.bold));
+                      }
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity, height: 60,

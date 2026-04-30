@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../backend/api_service.dart';
 import '../backend/app_theme.dart';
+import 'garage_services_page.dart';
 
 class MultipleGaragesetup extends StatefulWidget {
   const MultipleGaragesetup({super.key});
@@ -380,49 +381,82 @@ class _MultipleGaragesetupState extends State<MultipleGaragesetup> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.75,
+        height: MediaQuery.of(context).size.height * 0.85,
         decoration: const BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
         child: Column(
           children: [
             const SizedBox(height: 12),
             Container(width: 40, height: 4, decoration: BoxDecoration(color: AppTheme.surfaceLighter, borderRadius: BorderRadius.circular(2))),
             const SizedBox(height: 32),
+            
+            // Header with Compact Action
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("GARAGE DETAILS", style: TextStyle(color: AppTheme.textBody, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Container(width: 6, height: 6, decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle)),
+                            const SizedBox(width: 6),
+                            Text(status, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (status == 'APPROVED')
+                    TextButton.icon(
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => GarageServicesPage(garageId: req['partner_id'] ?? '', garageName: req['name'] ?? 'Garage'))),
+                      icon: const Icon(Icons.settings_rounded, size: 16),
+                      label: const Text("MANAGE", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.primary,
+                        backgroundColor: AppTheme.primary.withOpacity(0.05),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text("GARAGE DETAILS", style: TextStyle(color: AppTheme.textBody, fontSize: 20, fontWeight: FontWeight.bold)),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                          child: Text(status, style: TextStyle(color: statusColor, fontSize: 12, fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 32),
                     _buildInfoRow(Icons.store_rounded, "Business Name", req['name'] ?? "N/A"),
                     _buildInfoRow(Icons.person_rounded, "Owner Name", req['owner_name'] ?? "N/A"),
                     _buildInfoRow(Icons.phone_rounded, "Phone Number", req['phone'] ?? "N/A"),
                     _buildInfoRow(Icons.location_city_rounded, "City", req['city'] ?? "N/A"),
                     _buildInfoRow(Icons.map_rounded, "District/State", "${req['district'] ?? ''}, ${req['state'] ?? ''}"),
                     _buildInfoRow(Icons.my_location_rounded, "Coordinates", req['location'] ?? "N/A"),
-                    const SizedBox(height: 32),
+                    
+                    const SizedBox(height: 16),
                     const Text("SUBMITTED PHOTOS", style: TextStyle(color: AppTheme.textMuted, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                     const SizedBox(height: 16),
                     if (req['photo_urls'] != null)
                       SizedBox(
-                        height: 150,
+                        height: 180,
                         child: ListView(
                           scrollDirection: Axis.horizontal,
                           children: (req['photo_urls'] is String ? jsonDecode(req['photo_urls']) as List : req['photo_urls'] as List).map<Widget>((url) => Container(
-                            width: 200,
+                            width: 260,
                             margin: const EdgeInsets.only(right: 12),
-                            decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(16), image: DecorationImage(image: NetworkImage(url.toString()), fit: BoxFit.cover)),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surface, 
+                              borderRadius: BorderRadius.circular(20), 
+                              image: DecorationImage(image: NetworkImage(url.toString()), fit: BoxFit.cover),
+                              border: Border.all(color: AppTheme.surfaceLighter),
+                            ),
                           )).toList(),
                         ),
                       ),
@@ -431,6 +465,35 @@ class _MultipleGaragesetupState extends State<MultipleGaragesetup> {
                 ),
               ),
             ),
+
+            // STICKY BOTTOM BUTTON
+            if (status == 'APPROVED')
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppTheme.background,
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 40, offset: const Offset(0, -10))],
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => GarageServicesPage(garageId: req['partner_id'] ?? '', garageName: req['name'] ?? 'Garage'))),
+                      icon: const Icon(Icons.settings_suggest_rounded),
+                      label: const Text("MANAGE SERVICES & PRICING", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

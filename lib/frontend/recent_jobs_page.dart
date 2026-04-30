@@ -204,7 +204,21 @@ class _RecentJobsPageState extends State<RecentJobsPage> {
   }
 
   void _showDetailsModal(BuildContext context, Map<String, dynamic> job) {
-    final Map<String, dynamic> costs = jsonDecode(job['cost_details'] ?? '{}');
+    Map<String, dynamic> costMap = {};
+    if (job['cost_details'] != null && job['cost_details'].toString().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(job['cost_details']);
+        if (decoded is List) {
+          for (var item in decoded) {
+            costMap[item['name'].toString()] = item['cost'];
+          }
+        } else if (decoded is Map) {
+          costMap = decoded.cast<String, dynamic>();
+        }
+      } catch (e) {
+        debugPrint("Error parsing cost_details: $e");
+      }
+    }
     final List<dynamic> services = jsonDecode(job['service_types'] ?? '[]');
 
     showModalBottomSheet(
@@ -264,7 +278,7 @@ class _RecentJobsPageState extends State<RecentJobsPage> {
                             const Text("No services recorded", style: TextStyle(color: AppTheme.textMuted))
                           else
                             ...services.map((s) {
-                              final item = costs[s];
+                              final item = costMap[s.toString()];
                               final price = item is Map 
                                 ? (int.tryParse(item['cost'].toString()) ?? 0) * (int.tryParse(item['qty'].toString()) ?? 1)
                                 : (int.tryParse(item.toString()) ?? 0);

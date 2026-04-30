@@ -7,20 +7,44 @@ import 'admin_dashboard.dart';
 import 'garage_owner_page.dart';
 import 'loading_screen.dart';
 
-class AppDirector extends StatelessWidget {
+import 'package:shared_preferences/shared_preferences.dart';
+
+class AppDirector extends StatefulWidget {
   const AppDirector({super.key});
 
   @override
+  State<AppDirector> createState() => _AppDirectorState();
+}
+
+class _AppDirectorState extends State<AppDirector> {
+  String? _persistedRole;
+  bool _isInit = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPersistedRole();
+  }
+
+  Future<void> _loadPersistedRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _persistedRole = prefs.getString('intended_role');
+        _isInit = true;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (!_isInit) return const CustomLoadingScreen();
+
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        // 1. If not logged in, go to Login Page
-        if (!snapshot.hasData) {
-          return const LoginPage();
-        }
+        if (!snapshot.hasData) return const LoginPage();
 
-        // 2. If logged in, use API to check role and send to Dashboard
         return FutureBuilder<Map<String, dynamic>>(
           future: ApiService().getInitialState(),
           builder: (context, apiSnapshot) {
@@ -33,27 +57,17 @@ class AppDirector extends StatelessWidget {
                 body: Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
-                    child: Text("Mumbai Server Error: ${apiSnapshot.error}\n\nTry 'flutter clean' and restart.", textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+                    child: Text("Server Error: ${apiSnapshot.error}", textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
                   ),
                 ),
               );
             }
 
             final role = apiSnapshot.data?['role'];
-            final intended = NavigationService.intendedEntry;
-            print('DEBUG: AppDirector Role: $role, Intended: $intended');
+            final intended = NavigationService.intendedEntry ?? _persistedRole;
             
-            // 1. If explicit 'garage' entry was requested via button
-            if (intended == 'garage') {
-              return const GarageOwnerPage();
-            }
-
-            // 2. If 'user' entry requested OR natural login
-            if (role == 'admin' && intended != 'garage') {
-              return const AdminDashboard();
-            }
-
-            // 3. Default for everyone else (including garage owners clicking 'user')
+            if (intended == 'garage') return const GarageOwnerPage();
+            if (role == 'admin' && intended != 'garage') return const AdminDashboard();
             return const UserDashboard();
           },
         );
@@ -63,5 +77,17 @@ class AppDirector extends StatelessWidget {
 }
 
 class NavigationService {
-  static String? intendedEntry;
+  static String? _intendedEntry;
+  static String? get intendedEntry => _intendedEntry;
+  
+  static set intendedEntry(String? role) {
+    _intendedEntry = role;
+    SharedPreferences.getInstance().then((prefs) {
+      if (role != null) {
+        prefs.setString('intended_role', role);
+      } else {
+        prefs.remove('intended_role');
+      }
+    });
+  }
 }

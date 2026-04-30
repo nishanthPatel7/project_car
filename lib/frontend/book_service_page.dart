@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:animate_do/animate_do.dart';
 import 'package:geolocator/geolocator.dart';
@@ -18,7 +19,7 @@ class _BookServicePageState extends State<BookServicePage> {
   final TextEditingController _vehicleController = TextEditingController();
   final TextEditingController _issueController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
-  final List<String> _selectedServices = ['General Service'];
+  final List<String> _selectedServices = [];
   bool _isSubmitting = false;
   String _serviceMode = 'Walk-in'; // Walk-in or Pickup
   String _vehicleType = 'Car';
@@ -33,31 +34,15 @@ class _BookServicePageState extends State<BookServicePage> {
   bool _isLoadingGarages = true;
   final TextEditingController _garageSearchController = TextEditingController();
   String? _garageError;
+  List<Map<String, dynamic>> _garageAvailableServices = [];
+  List<String> _availableBrandsForGarage = [];
+  bool _isFetchingBrands = false;
+  bool _isFetchingPricing = false;
 
   final Map<String, List<String>> _topBrands = {
-    'Car': [
-      'Maruti Suzuki', 'Hyundai', 'Tata Motors', 'Mahindra', 'Toyota', 
-      'Kia', 'Honda', 'Skoda', 'MG Motor', 'Volkswagen'
-    ],
-    'Bike': [
-      'Hero MotoCorp', 'Honda', 'TVS', 'Bajaj Auto', 'Royal Enfield', 
-      'Suzuki', 'Yamaha', 'KTM', 'Jawa', 'Kawasaki'
-    ]
+    'Car': ['Maruti Suzuki', 'Hyundai', 'Tata Motors', 'Mahindra', 'Toyota', 'Kia', 'Honda', 'Skoda', 'MG Motor', 'Volkswagen'],
+    'Bike': ['Hero MotoCorp', 'Honda', 'TVS', 'Bajaj Auto', 'Royal Enfield', 'Suzuki', 'Yamaha', 'KTM', 'Jawa', 'Kawasaki']
   };
-
-  final List<Map<String, dynamic>> _serviceItems = [
-    {'name': 'General', 'icon': Icons.settings_rounded},
-    {'name': 'Oil', 'icon': Icons.opacity_rounded},
-    {'name': 'Brake', 'icon': Icons.disc_full_rounded},
-    {'name': 'Engine', 'icon': Icons.engineering_rounded},
-    {'name': 'Body Wash', 'icon': Icons.wash_rounded},
-    {'name': 'AC', 'icon': Icons.ac_unit_rounded},
-    {'name': 'Battery', 'icon': Icons.battery_charging_full_rounded},
-    {'name': 'Tyre', 'icon': Icons.tire_repair_rounded},
-    {'name': 'Alignment', 'icon': Icons.align_vertical_center_rounded},
-    {'name': 'Painting', 'icon': Icons.format_paint_rounded},
-    {'name': 'Other', 'icon': Icons.more_horiz_rounded},
-  ];
 
   static const Color primaryOrange = Color(0xFFFF5C00);
   static const Color darkBg = Color(0xFF0A0A0A);
@@ -85,6 +70,93 @@ class _BookServicePageState extends State<BookServicePage> {
     }
   }
 
+  void _fetchGaragePricing() async {
+    if (_selectedGarageId == null) return;
+    
+    String? model;
+    if (_selectedVehicleId == 'new') {
+      model = _selectedBrand;
+    } else {
+      final v = _userVehicles.firstWhere((v) => v['id'].toString() == _selectedVehicleId, orElse: () => null);
+      model = v?['brand'] ?? v?['model'];
+    }
+
+    if (model == null) return;
+
+    setState(() {
+      _isFetchingPricing = true;
+      _selectedServices.clear();
+      _garageAvailableServices.clear();
+    });
+
+    final res = await ApiService().getGaragePricing({
+      'garageUid': _selectedGarageId,
+      'vehicleType': _vehicleType,
+      'modelName': model,
+    });
+
+    if (mounted) {
+      if (res['status'] == 'success') {
+        List<Map<String, dynamic>> services = [];
+        for (var s in (res['services'] as List)) {
+          services.add({
+            'name': s['service_name'].toString(),
+            'cost': int.tryParse(s['cost'].toString()) ?? 0,
+          });
+        }
+        setState(() {
+          _garageAvailableServices = services;
+          _isFetchingPricing = false;
+        });
+      } else {
+        setState(() => _isFetchingPricing = false);
+      }
+    }
+  }
+
+  void _fetchGarageBrands() async {
+    if (_selectedGarageId == null) return;
+
+    setState(() {
+      _isFetchingBrands = true;
+      _availableBrandsForGarage = [];
+      _selectedBrand = null;
+      _garageAvailableServices.clear(); // Clear services when fetching new brands
+    });
+
+    final res = await ApiService().getGaragePricing({
+      'garageUid': _selectedGarageId,
+      'vehicleType': _vehicleType,
+      'onlyBrands': true,
+    });
+
+    if (mounted) {
+      if (res['status'] == 'success') {
+        Set<String> brands = {};
+        for (var s in (res['services'] as List)) {
+          if (s['model_name'] != null) {
+            brands.add(s['model_name'].toString());
+          }
+        }
+        setState(() {
+          _availableBrandsForGarage = brands.toList()..sort();
+          _isFetchingBrands = false;
+        });
+      } else {
+        setState(() => _isFetchingBrands = false);
+      }
+    }
+  }
+
+  int get _estimatedTotal {
+    int total = 0;
+    for (var sName in _selectedServices) {
+      final s = _garageAvailableServices.firstWhere((item) => item['name'] == sName, orElse: () => {'cost': 0});
+      total += (s['cost'] as int);
+    }
+    return total;
+  }
+
   void _filterGarages(String query) {
     setState(() {
       if (query.isEmpty) {
@@ -105,7 +177,6 @@ class _BookServicePageState extends State<BookServicePage> {
       setState(() {
         _userVehicles = res['data']?['vehicles'] ?? [];
         _isLoadingVehicles = false;
-        // Default to 'new' (Always as start option)
         _selectedVehicleId = 'new';
         _vehicleController.clear();
       });
@@ -115,13 +186,27 @@ class _BookServicePageState extends State<BookServicePage> {
   void _toggleService(String service) {
     setState(() {
       if (_selectedServices.contains(service)) {
-        if (_selectedServices.length > 1) {
-          _selectedServices.remove(service);
-        }
+        _selectedServices.remove(service);
       } else {
         _selectedServices.add(service);
       }
     });
+  }
+
+  IconData _getServiceIcon(String name) {
+    final n = name.toLowerCase();
+    if (n.contains('oil')) return Icons.opacity_rounded;
+    if (n.contains('brake')) return Icons.disc_full_rounded;
+    if (n.contains('engine')) return Icons.engineering_rounded;
+    if (n.contains('wash')) return Icons.wash_rounded;
+    if (n.contains('ac')) return Icons.ac_unit_rounded;
+    if (n.contains('battery')) return Icons.battery_charging_full_rounded;
+    if (n.contains('tyre')) return Icons.tire_repair_rounded;
+    if (n.contains('alignment')) return Icons.align_vertical_center_rounded;
+    if (n.contains('paint')) return Icons.format_paint_rounded;
+    if (n.contains('clutch')) return Icons.work_history_rounded;
+    if (n.contains('chain')) return Icons.link_rounded;
+    return Icons.settings_rounded;
   }
 
   void _submitBooking() async {
@@ -147,7 +232,7 @@ class _BookServicePageState extends State<BookServicePage> {
     }
 
     if (_selectedServices.isEmpty) {
-      setState(() => _serviceError = "Not filled this details");
+      setState(() => _serviceError = "Please select at least one service");
       hasError = true;
     }
 
@@ -156,17 +241,118 @@ class _BookServicePageState extends State<BookServicePage> {
       hasError = true;
     }
 
-    if (hasError) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Some details are missing"), backgroundColor: Colors.redAccent),
-      );
-      return;
+    if (hasError) return;
+
+    final selectedGarage = _allGarages.firstWhere((g) => (g['uid'] ?? g['partner_id'] ?? g['user_uid']).toString() == _selectedGarageId);
+    final garageName = selectedGarage['name'] ?? "Partner Garage";
+
+    // Prepare cost details
+    List<Map<String, dynamic>> serviceCosts = [];
+    int subtotal = 0;
+    for (var sName in _selectedServices) {
+      final s = _garageAvailableServices.firstWhere((item) => item['name'] == sName, orElse: () => {'cost': 0});
+      int cost = (s['cost'] as int);
+      serviceCosts.add({'name': sName, 'cost': cost});
+      subtotal += cost;
     }
 
+    _showConfirmationSheet(subtotal, serviceCosts, garageName);
+  }
+
+  void _showConfirmationSheet(int subtotal, List<Map<String, dynamic>> serviceCosts, String garageName) {
+    final double tax = subtotal * 0.05;
+    final double total = subtotal + tax;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1A1A1A), // Matching darkBg
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("CONFIRM BOOKING", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1)),
+            const SizedBox(height: 8),
+            Text("Garage: $garageName", style: const TextStyle(color: Colors.white60, fontSize: 12)),
+            const SizedBox(height: 24),
+            
+            const Text("SERVICES", style: TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            const SizedBox(height: 12),
+            ...serviceCosts.map((s) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(s['name'], style: const TextStyle(color: Colors.white, fontSize: 14)),
+                  Text("₹${s['cost']}", style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            )),
+            
+            const Divider(color: Colors.white10, height: 32),
+            
+            _buildAmountRow("Subtotal", subtotal.toDouble()),
+            _buildAmountRow("Service Tax (5%)", tax),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
+              child: _buildAmountRow("GRAND TOTAL", total, isBold: true, color: Colors.orange),
+            ),
+            
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _executeBooking(total.round(), serviceCosts, garageName);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                ),
+                child: const Text("BOOK NOW", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAmountRow(String label, double val, {bool isBold = false, Color color = Colors.white}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: isBold ? Colors.white : Colors.white60, fontSize: isBold ? 14 : 13, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+          Text("₹${val.toStringAsFixed(0)}", style: TextStyle(color: color, fontSize: isBold ? 20 : 14, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+        ],
+      ),
+    );
+  }
+
+  void _executeBooking(int finalTotal, List<Map<String, dynamic>> serviceCosts, String garageName) async {
     setState(() => _isSubmitting = true);
 
-    final selectedGarage = _allGarages.firstWhere((g) => (g['partner_id'] ?? g['user_uid']) == _selectedGarageId);
-    final garageName = selectedGarage['name'] ?? "Partner Garage";
+    // Calculate tax for DB storage
+    final subtotal = finalTotal / 1.05;
+    final taxAmount = finalTotal - subtotal;
+    
+    // Create a copy to avoid modifying the list used in the UI if needed
+    List<Map<String, dynamic>> dbServiceCosts = List.from(serviceCosts);
+    dbServiceCosts.add({'name': 'Service Tax (5%)', 'cost': taxAmount.round()});
 
     final result = await ApiService().submitJob({
       'vehicleNo': _vehicleController.text,
@@ -179,30 +365,104 @@ class _BookServicePageState extends State<BookServicePage> {
       'garage_uid': _selectedGarageId,
       'garage_name': garageName,
       'garageName': garageName,
+      'totalAmount': finalTotal,
+      'costDetails': jsonEncode(dbServiceCosts),
     });
 
     setState(() => _isSubmitting = false);
 
     if (result['status'] == 'success') {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text("Booking Successful!"),
-            backgroundColor: Colors.green.shade700,
-          ),
-        );
-        Navigator.pop(context);
+        _showSuccessSheet(finalTotal, dbServiceCosts, garageName);
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Error: ${result['message']}"),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: ${result['message']}"), backgroundColor: Colors.red));
       }
     }
+  }
+
+  void _showSuccessSheet(int finalTotal, List<Map<String, dynamic>> serviceCosts, String garageName) {
+    final now = DateTime.now();
+    final timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+    final dateStr = "${now.day}/${now.month}/${now.year}";
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isDismissible: false,
+      enableDrag: false,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(32),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1A1A1A), // darkBg
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle_rounded, color: Colors.green, size: 80),
+            const SizedBox(height: 24),
+            const Text("BOOKING CONFIRMED", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 1)),
+            const SizedBox(height: 8),
+            Text("Your request has been sent to $garageName", textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, fontSize: 13)),
+            const SizedBox(height: 32),
+            
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(24), border: Border.all(color: Colors.white10)),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.access_time_rounded, color: Colors.orange, size: 16),
+                      const SizedBox(width: 8),
+                      const Text("Booking Time", style: TextStyle(color: Colors.white60, fontSize: 12)),
+                      const Spacer(),
+                      Text("$dateStr · $timeStr", style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const Divider(color: Colors.white10, height: 32),
+                  ...serviceCosts.map((s) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(s['name'], style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        Text("₹${s['cost']}", style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  )),
+                  const Divider(color: Colors.white10, height: 32),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("TOTAL BILL", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                      Text("₹$finalTotal", style: const TextStyle(color: Colors.orange, fontSize: 20, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 48),
+            SizedBox(
+              width: double.infinity,
+              height: 60,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context); // Close sheet
+                  Navigator.pop(this.context); // Go back
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                child: const Text("DONE", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -227,25 +487,20 @@ class _BookServicePageState extends State<BookServicePage> {
             children: [
               FadeInDown(
                 duration: const Duration(milliseconds: 500),
-                child: const Text(
-                  "Choose Vehicle",
-                  style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-                ),
+                child: const Text("Choose Vehicle", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
               ),
               const SizedBox(height: 16),
               
-              // Vehicles List
               if (_isLoadingVehicles)
                 const Center(child: CircularProgressIndicator(color: primaryOrange))
               else
                 FadeInUp(
                   duration: const Duration(milliseconds: 600),
                   child: SizedBox(
-                    height: 100,
+                    height: 72,
                     child: ListView(
                       scrollDirection: Axis.horizontal,
                       children: [
-                        // New Vehicle option always first
                         _buildNewVehicleToggle(),
                         ..._userVehicles.map((v) => _buildVehicleSmallCard(v)),
                       ],
@@ -255,13 +510,37 @@ class _BookServicePageState extends State<BookServicePage> {
 
               const SizedBox(height: 32),
               
-              // Vehicle Number (if adding new, otherwise show selected)
-              _buildLabel("1) Vehicle Details", error: _vehicleError),
+              _buildLabel("1) Choose Garage", error: _garageError),
+              const SizedBox(height: 12),
+              if (_isLoadingGarages)
+                const Center(child: CircularProgressIndicator(color: primaryOrange))
+              else ...[
+                FadeInUp(
+                  duration: const Duration(milliseconds: 500),
+                  child: _buildTextField(_garageSearchController, "Search by name or city...", Icons.search_rounded, required: false, onChanged: _filterGarages),
+                ),
+                const SizedBox(height: 16),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 1.4,
+                  ),
+                  itemCount: _filteredGarages.length,
+                  itemBuilder: (context, index) => _buildGarageBlock(_filteredGarages[index]),
+                ),
+              ],
+
+              const SizedBox(height: 32),
+
+              _buildLabel("2) Vehicle Details", error: _vehicleError),
               FadeInUp(
                 duration: const Duration(milliseconds: 500),
                 child: Column(
                   children: [
-                    // Vehicle Type Selector (Bike/Car)
                     if (_selectedVehicleId == 'new') ...[
                       Row(
                         children: [
@@ -271,155 +550,108 @@ class _BookServicePageState extends State<BookServicePage> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // Brand Dropdown
                       _buildBrandDropdown(),
                       const SizedBox(height: 16),
                     ],
-                    _buildTextField(_vehicleController, "Vehicle Number", Icons.confirmation_number_rounded, enabled: _selectedVehicleId == 'new'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 28),
-
-              // Multiple Service Selection
-              _buildLabel("2) Select Services", error: _serviceError),
-              FadeInUp(
-                duration: const Duration(milliseconds: 600),
-                child: GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
-                    childAspectRatio: 1.0,
-                  ),
-                  itemCount: _serviceItems.length,
-                  itemBuilder: (context, index) {
-                    final item = _serviceItems[index];
-                    return _buildServiceCard(item['name'], item['icon']);
-                  },
-                ),
-              ),
-              const SizedBox(height: 28),
-
-              // Issue Description
-              _buildLabel("3) Additional Notes"),
-              FadeInUp(
-                duration: const Duration(milliseconds: 700),
-                child: _buildTextField(_issueController, "Any specific concerns? (Optional)", Icons.edit_note_rounded, maxLines: 3, required: false),
-              ),
-              const SizedBox(height: 32),
-
-              // Service Mode
-              _buildLabel("4) Service Mode"),
-              const SizedBox(height: 12),
-              FadeInUp(
-                duration: const Duration(milliseconds: 800),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        _buildModeTile("Walk-in", "Visit Garage", Icons.location_on_rounded),
-                        const SizedBox(width: 16),
-                        _buildModeTile("Pickup", "We Collect", Icons.moped_rounded),
-                      ],
-                    ),
-                    if (_serviceMode == 'Pickup') ...[
-                      const SizedBox(height: 16),
-                      FadeInUp(
-                        duration: const Duration(milliseconds: 500),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildLabel("Pickup Address", error: _addressError),
-                            _buildTextField(
-                              _addressController, 
-                              "Enter your full address", 
-                              Icons.home_rounded,
-                              suffix: IconButton(
-                                icon: _isFetchingLocation 
-                                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: primaryOrange, strokeWidth: 2))
-                                  : const Icon(Icons.my_location_rounded, color: primaryOrange, size: 20),
-                                onPressed: _getCurrentLocation,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    _buildTextField(_vehicleController, "Vehicle Number", Icons.confirmation_number_rounded, enabled: _selectedVehicleId == 'new', maxLength: 12),
                   ],
                 ),
               ),
               const SizedBox(height: 32),
-              
-              // Garage Selection
-              _buildLabel("5) Choose Garage", error: _garageError),
+
+              _buildLabel("3) Select Services", error: _serviceError),
               const SizedBox(height: 12),
-              
-              if (_isLoadingGarages)
-                const Center(child: CircularProgressIndicator(color: primaryOrange))
-              else ...[
-                // Search Bar
-                FadeInUp(
-                  duration: const Duration(milliseconds: 500),
-                  child: _buildTextField(
-                    _garageSearchController, 
-                    "Search garage by name or city...", 
-                    Icons.search_rounded,
-                    required: false,
-                    onChanged: _filterGarages,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                
-                // Garage List
+              if (_selectedGarageId == null)
+                _buildInfoBanner("Select a garage first to view services")
+              else if (_isFetchingPricing)
+                const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(color: primaryOrange)))
+              else if (_garageAvailableServices.isEmpty)
+                _buildInfoBanner("This garage does not offer services for the selected vehicle model.")
+              else
                 FadeInUp(
                   duration: const Duration(milliseconds: 600),
-                  child: _filteredGarages.isEmpty
-                    ? Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(16)),
-                        child: const Center(child: Text("No approved garages found", style: TextStyle(color: Colors.white38))),
-                      )
-                    : ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _filteredGarages.length,
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          final garage = _filteredGarages[index];
-                          return _buildGarageCard(garage);
-                        },
-                      ),
+                  child: GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 1.1,
+                    ),
+                    itemCount: _garageAvailableServices.length,
+                    itemBuilder: (context, index) {
+                      final s = _garageAvailableServices[index];
+                      return _buildDynamicServiceCard(s['name'], s['cost']);
+                    },
+                  ),
                 ),
+              const SizedBox(height: 32),
+
+              _buildLabel("4) Details & Mode"),
+              FadeInUp(duration: const Duration(milliseconds: 700), child: _buildTextField(_issueController, "Problem description (Optional)", Icons.edit_note_rounded, maxLines: 3, required: false)),
+              const SizedBox(height: 16),
+              FadeInUp(
+                duration: const Duration(milliseconds: 800),
+                child: Row(
+                  children: [
+                    _buildModeTile("Walk-in", Icons.location_on_rounded),
+                    const SizedBox(width: 16),
+                    _buildModeTile("Pickup", Icons.moped_rounded),
+                  ],
+                ),
+              ),
+              if (_serviceMode == 'Pickup') ...[
+                const SizedBox(height: 16),
+                _buildLabel("Pickup Address", error: _addressError),
+                _buildTextField(_addressController, "Enter full address", Icons.home_rounded, suffix: IconButton(icon: Icon(_isFetchingLocation ? Icons.hourglass_empty : Icons.my_location_rounded, color: primaryOrange, size: 20), onPressed: _getCurrentLocation)),
               ],
               
               const SizedBox(height: 48),
 
-              // Submit Button
-              FadeInUp(
-                duration: const Duration(milliseconds: 900),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 60,
-                  child: ElevatedButton(
-                    onPressed: _isSubmitting ? null : _submitBooking,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryOrange,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                      elevation: 0,
+              if (_estimatedTotal > 0)
+                FadeInUp(
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 24),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(color: primaryOrange.withOpacity(0.1), borderRadius: BorderRadius.circular(20), border: Border.all(color: primaryOrange.withOpacity(0.3))),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const Text("ESTIMATED TOTAL", style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                          Text("₹$_estimatedTotal", style: AppTheme.monoStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                        ]),
+                        const Icon(Icons.receipt_long_rounded, color: primaryOrange, size: 28),
+                      ],
                     ),
-                    child: _isSubmitting
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("Submit Request", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                 ),
+
+              SizedBox(
+                width: double.infinity,
+                height: 60,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _submitBooking,
+                  style: ElevatedButton.styleFrom(backgroundColor: primaryOrange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
+                  child: _isSubmitting ? const CircularProgressIndicator(color: Colors.white) : const Text("Book Now", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                ),
               ),
+              const SizedBox(height: 40),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildInfoBanner(String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white10)),
+      child: Text(text, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white38, fontSize: 13)),
     );
   }
 
@@ -429,12 +661,13 @@ class _BookServicePageState extends State<BookServicePage> {
       onTap: () => setState(() {
         _selectedVehicleId = v['id'].toString();
         _vehicleController.text = v['vehicle_no'];
+        _fetchGaragePricing();
       }),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        width: 140,
+      child: Container(
+        width: 110,
+        height: 64,
         margin: const EdgeInsets.only(right: 12),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
           borderRadius: BorderRadius.circular(16),
@@ -443,10 +676,10 @@ class _BookServicePageState extends State<BookServicePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.directions_car_filled_rounded, color: isSelected ? primaryOrange : Colors.white24, size: 24),
-            const SizedBox(height: 8),
-            Text(v['vehicle_no'], style: TextStyle(color: isSelected ? Colors.white : Colors.white38, fontSize: 13, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
-            Text(v['model'], style: TextStyle(color: isSelected ? Colors.white70 : Colors.white10, fontSize: 10), overflow: TextOverflow.ellipsis),
+            Icon(Icons.directions_car_filled_rounded, color: isSelected ? primaryOrange : Colors.white24, size: 20),
+            const SizedBox(height: 1),
+            Text(v['vehicle_no'], style: TextStyle(color: isSelected ? Colors.white : Colors.white38, fontSize: 11, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+            Text(v['model'], style: TextStyle(color: isSelected ? Colors.white70 : Colors.white10, fontSize: 8), overflow: TextOverflow.ellipsis),
           ],
         ),
       ),
@@ -460,12 +693,13 @@ class _BookServicePageState extends State<BookServicePage> {
         _selectedVehicleId = 'new';
         _vehicleController.clear();
         _selectedBrand = null;
+        _garageAvailableServices.clear();
       }),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        width: 120,
+      child: Container(
+        width: 90,
+        height: 64,
         margin: const EdgeInsets.only(right: 12),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
           borderRadius: BorderRadius.circular(16),
@@ -474,9 +708,87 @@ class _BookServicePageState extends State<BookServicePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.add_circle_outline_rounded, color: isSelected ? primaryOrange : Colors.white24, size: 24),
-            const SizedBox(height: 8),
-            Text("NEW VEHICLE", style: TextStyle(color: isSelected ? Colors.white : Colors.white38, fontSize: 11, fontWeight: FontWeight.bold)),
+            Icon(Icons.add_circle_outline_rounded, color: isSelected ? primaryOrange : Colors.white24, size: 20),
+            const SizedBox(height: 1),
+            Text("NEW VEHICLE", style: TextStyle(color: isSelected ? Colors.white : Colors.white38, fontSize: 9, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGarageBlock(Map garage) {
+    final String gId = (garage['uid'] ?? garage['partner_id'] ?? garage['user_uid'] ?? "").toString();
+    bool isSelected = _selectedGarageId != null && _selectedGarageId == gId;
+    return GestureDetector(
+      onTap: () => setState(() {
+        _selectedGarageId = gId;
+        _selectedServices.clear();
+        _fetchGarageBrands();
+      }),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? primaryOrange : Colors.white10, width: 2),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+              child: (garage['photo_urls'] != null && (garage['photo_urls'] as List).isNotEmpty)
+                  ? Image.network(garage['photo_urls'][0], width: double.infinity, height: 75, fit: BoxFit.cover)
+                  : Container(height: 75, width: double.infinity, color: Colors.white10, child: const Icon(Icons.garage_rounded, color: Colors.white24, size: 30)),
+            ),
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: "${garage['name'] ?? "Garage"}\n",
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, height: 1.1),
+                        ),
+                        TextSpan(
+                          text: "${garage['address'] ?? ""}${garage['address'] != null && garage['city'] != null ? ", " : ""}${garage['city'] ?? ""}",
+                          style: const TextStyle(color: Colors.white38, fontSize: 9, height: 1.1),
+                        ),
+                      ],
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDynamicServiceCard(String name, int cost) {
+    bool isSelected = _selectedServices.contains(name);
+    return GestureDetector(
+      onTap: () => _toggleService(name),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: isSelected ? primaryOrange : Colors.white10, width: 1.5),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(_getServiceIcon(name), color: isSelected ? primaryOrange : Colors.white24, size: 16),
+            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: TextStyle(color: isSelected ? Colors.white : Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+            Text("₹$cost", style: AppTheme.monoStyle(color: isSelected ? primaryOrange : Colors.white38, fontSize: 11, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
@@ -490,8 +802,7 @@ class _BookServicePageState extends State<BookServicePage> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(text.toUpperCase(), style: const TextStyle(color: Colors.white30, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-          if (error != null)
-            Text(error, style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+          if (error != null) Text(error, style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -500,42 +811,27 @@ class _BookServicePageState extends State<BookServicePage> {
   Future<void> _getCurrentLocation() async {
     setState(() => _isFetchingLocation = true);
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) throw 'Location services are disabled.';
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) throw 'Permission denied';
-      }
-      
-      if (permission == LocationPermission.deniedForever) throw 'Permission denied forever';
-
       Position position = await Geolocator.getCurrentPosition();
       List<Placemark> placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
-      
       if (placemarks.isNotEmpty) {
-        Placemark place = placemarks[0];
-        String address = "${place.street}, ${place.subLocality}, ${place.locality}, ${place.postalCode}";
-        setState(() {
-          _addressController.text = address;
-        });
+        Placemark p = placemarks[0];
+        setState(() => _addressController.text = "${p.street}, ${p.locality}");
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       setState(() => _isFetchingLocation = false);
     }
   }
 
-  Widget _buildTextField(TextEditingController controller, String hint, IconData icon, {int maxLines = 1, bool enabled = true, bool required = true, Widget? suffix, Function(String)? onChanged}) {
+  Widget _buildTextField(TextEditingController controller, String hint, IconData icon, {int maxLines = 1, bool enabled = true, bool required = true, int? maxLength, Widget? suffix, Function(String)? onChanged}) {
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
       enabled: enabled,
+      maxLength: maxLength,
       onChanged: onChanged,
       style: TextStyle(color: enabled ? Colors.white : Colors.white38),
-      validator: (v) => (required && (v == null || v.isEmpty)) ? "Required" : null,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(color: Colors.white12),
@@ -544,30 +840,26 @@ class _BookServicePageState extends State<BookServicePage> {
         filled: true,
         fillColor: cardBg,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       ),
     );
   }
 
-  Widget _buildModeTile(String mode, String subtitle, IconData icon) {
+  Widget _buildModeTile(String mode, IconData icon) {
     bool isSelected = _serviceMode == mode;
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => _serviceMode = mode),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 300),
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          decoration: BoxDecoration(
-            color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: isSelected ? primaryOrange : Colors.transparent, width: 2),
-          ),
-          child: Column(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: isSelected ? primaryOrange : Colors.white10)),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: isSelected ? primaryOrange : Colors.white24, size: 32),
-              const SizedBox(height: 12),
+              Icon(icon, color: isSelected ? primaryOrange : Colors.white24, size: 18),
+              const SizedBox(width: 8),
               Text(mode, style: TextStyle(color: isSelected ? Colors.white : Colors.white38, fontWeight: FontWeight.bold)),
-              Text(subtitle, style: TextStyle(color: isSelected ? Colors.white70 : Colors.white10, fontSize: 10)),
             ],
           ),
         ),
@@ -581,16 +873,14 @@ class _BookServicePageState extends State<BookServicePage> {
       child: GestureDetector(
         onTap: () => setState(() {
           _vehicleType = type;
-          _selectedBrand = null; // Reset brand on type change
+          _selectedBrand = null;
+          _garageAvailableServices.clear();
+          if (_selectedGarageId != null) _fetchGarageBrands();
         }),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: isSelected ? primaryOrange : Colors.white10),
-          ),
+          decoration: BoxDecoration(color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: isSelected ? primaryOrange : Colors.white10)),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -605,134 +895,44 @@ class _BookServicePageState extends State<BookServicePage> {
   }
 
   Widget _buildBrandDropdown() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedBrand,
-          hint: const Text("Select Brand", style: TextStyle(color: Colors.white24, fontSize: 13)),
-          isExpanded: true,
-          dropdownColor: cardBg,
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: primaryOrange),
-          items: _topBrands[_vehicleType]!.map((brand) {
-            return DropdownMenuItem(
-              value: brand,
-              child: Text(brand, style: const TextStyle(color: Colors.white, fontSize: 14)),
-            );
-          }).toList(),
-          onChanged: (val) => setState(() => _selectedBrand = val),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildServiceCard(String name, IconData icon) {
-    bool isSelected = _selectedServices.contains(name);
-    return GestureDetector(
-      onTap: () => _toggleService(name),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        decoration: BoxDecoration(
-          color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected ? primaryOrange : Colors.white10.withOpacity(0.1),
-            width: 1.5,
+    bool hasGarage = _selectedGarageId != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white10)),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedBrand,
+              hint: Text("Select Brand", style: TextStyle(color: Colors.white24, fontSize: 13)),
+              isExpanded: true,
+              dropdownColor: cardBg,
+              icon: Icon(Icons.keyboard_arrow_down_rounded, color: hasGarage ? primaryOrange : Colors.white10),
+              items: _availableBrandsForGarage.map((brand) => DropdownMenuItem(value: brand, child: Text(brand, style: const TextStyle(color: Colors.white, fontSize: 14)))).toList(),
+              onChanged: hasGarage ? (val) => setState(() {
+                _selectedBrand = val;
+                _fetchGaragePricing();
+              }) : null,
+            ),
           ),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: isSelected ? primaryOrange : Colors.white24, size: 20),
-            const SizedBox(height: 6),
-            Text(
-              name,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white38,
-                fontSize: 9,
-                fontWeight: isSelected ? FontWeight.w900 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGarageCard(Map garage) {
-    final String gId = garage['partner_id'] ?? garage['user_uid'] ?? "";
-    bool isSelected = _selectedGarageId == gId;
-    return GestureDetector(
-      onTap: () => setState(() => _selectedGarageId = gId),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isSelected ? primaryOrange.withOpacity(0.1) : cardBg,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isSelected ? primaryOrange : Colors.white10, width: 2),
-        ),
-        child: Row(
-          children: [
-            // Garage Image (Thumbnail)
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: Colors.white10,
-                borderRadius: BorderRadius.circular(12),
-                image: (garage['photo_urls'] != null && (garage['photo_urls'] as List).isNotEmpty)
-                  ? DecorationImage(image: NetworkImage(garage['photo_urls'][0]), fit: BoxFit.cover)
-                  : null,
-              ),
-              child: (garage['photo_urls'] == null || (garage['photo_urls'] as List).isEmpty)
-                ? const Icon(Icons.garage_rounded, color: Colors.white24)
-                : null,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    garage['name'] ?? "Unnamed Garage",
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.location_on_rounded, color: primaryOrange, size: 12),
-                      const SizedBox(width: 4),
-                      Text(
-                        "${garage['city']}, ${garage['district']}",
-                        style: const TextStyle(color: Colors.white38, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    "Owner: ${garage['owner_name']}",
-                    style: const TextStyle(color: Colors.white24, fontSize: 10),
-                  ),
-                  if (garage['partner_id'] != null)
-                    Text(
-                      "ID: ${garage['partner_id']}",
-                      style: AppTheme.monoStyle(color: primaryOrange.withOpacity(0.5), fontSize: 9, fontWeight: FontWeight.bold),
-                    ),
-                ],
-              ),
-            ),
-            if (isSelected)
-              const Icon(Icons.check_circle_rounded, color: primaryOrange),
-          ],
-        ),
-      ),
+        if (!hasGarage)
+          const Padding(
+            padding: EdgeInsets.only(top: 8, left: 4),
+            child: Text("Choose a garage above to see supported brands", style: TextStyle(color: Colors.white30, fontSize: 10, fontWeight: FontWeight.bold)),
+          ),
+        if (hasGarage && _isFetchingBrands)
+          const Padding(
+            padding: EdgeInsets.only(top: 8, left: 4),
+            child: SizedBox(height: 2, child: LinearProgressIndicator(color: primaryOrange, backgroundColor: Colors.white10)),
+          ),
+        if (hasGarage && !_isFetchingBrands && _availableBrandsForGarage.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 8, left: 4),
+            child: Text("❌ This garage doesn't offer services for this vehicle type.", style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+          ),
+      ],
     );
   }
 }

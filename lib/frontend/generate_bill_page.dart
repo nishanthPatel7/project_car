@@ -123,7 +123,7 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
                         const SizedBox(height: 16),
                         _buildTextField(_customerNameController, "Customer Name", Icons.person_rounded),
                         const SizedBox(height: 16),
-                        _buildTextField(_vehicleController, "Vehicle Number", Icons.confirmation_number_rounded),
+                        _buildTextField(_vehicleController, "Vehicle Number", Icons.confirmation_number_rounded, maxLength: 12),
                       ],
                     ),
                   ),
@@ -488,16 +488,18 @@ class _GenerateBillPageState extends State<GenerateBillPage> {
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String hint, IconData icon, {int maxLines = 1, bool required = true}) {
+  Widget _buildTextField(TextEditingController controller, String hint, IconData icon, {int maxLines = 1, bool required = true, int? maxLength}) {
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
+      maxLength: maxLength,
       style: const TextStyle(color: AppTheme.textBody),
       validator: (v) => (required && (v == null || v.isEmpty)) ? "Required" : null,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: const TextStyle(color: AppTheme.textMuted),
         prefixIcon: Icon(icon, color: AppTheme.primary, size: 20),
+        counterText: "",
         filled: true,
         fillColor: AppTheme.surface,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),

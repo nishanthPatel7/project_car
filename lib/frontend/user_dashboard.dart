@@ -372,10 +372,12 @@ class _UserDashboardState extends State<UserDashboard> {
               const SizedBox(height: 24),
               TextField(
                 controller: noController,
+                maxLength: 10,
                 style: const TextStyle(color: AppTheme.textBody),
                 decoration: InputDecoration(
-                  hintText: "Vehicle Number (e.g. KA-01-MH-1234)",
+                  hintText: "Vehicle Number (e.g. KA01MH1234)",
                   hintStyle: const TextStyle(color: AppTheme.textMuted),
+                  counterText: "", // Hide character counter
                   filled: true,
                   fillColor: AppTheme.surface,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -668,10 +670,27 @@ class _UserDashboardState extends State<UserDashboard> {
                       Text("ID: #${job['id'] ?? job['invoice_no'] ?? 'N/A'}", style: AppTheme.monoStyle(color: AppTheme.textMuted, fontSize: 12)),
                     ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                    child: Text(status.toString().toUpperCase(), style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: status == 'completed' ? AppTheme.success.withOpacity(0.1) : AppTheme.primary.withOpacity(0.1), 
+                          borderRadius: BorderRadius.circular(8)
+                        ),
+                        child: Text(
+                          status.toString().toUpperCase(), 
+                          style: TextStyle(
+                            color: status == 'completed' ? AppTheme.success : AppTheme.primary, 
+                            fontSize: 10, 
+                            fontWeight: FontWeight.bold
+                          )
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(dateStr, style: const TextStyle(color: AppTheme.textMuted, fontSize: 11)),
+                    ],
                   ),
                 ],
               ),
@@ -684,6 +703,12 @@ class _UserDashboardState extends State<UserDashboard> {
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => ServiceLocationPage(initialGarageUid: job['garage_uid']))))),
                 ],
               ),
+              const SizedBox(height: 12),
+              _buildCompactDetail("SERVICE MODE", job['service_mode'] ?? job['serviceMode'] ?? "Walk-in", Icons.room_service_rounded),
+              if ((job['service_mode'] ?? job['serviceMode']) == 'Pickup') ...[
+                const SizedBox(height: 12),
+                _buildCompactDetail("PICKUP ADDRESS", job['address'] ?? "No address provided", Icons.location_on_rounded),
+              ],
               if ((job['problem_desc'] ?? job['problemDesc']) != null && (job['problem_desc'] ?? job['problemDesc']).toString().isNotEmpty) ...[
                 const SizedBox(height: 16),
                 _buildCompactDetail("ISSUE", job['problem_desc'] ?? job['problemDesc'], Icons.report_problem_rounded),
@@ -702,7 +727,13 @@ class _UserDashboardState extends State<UserDashboard> {
                   children: (() {
                     var services = job['service_types'] ?? job['serviceTypes'];
                     if (services is String && services.startsWith('[') && services.endsWith(']')) {
-                      try { services = jsonDecode(services); } catch (e) {}
+                      try {
+                        var decoded = jsonDecode(services);
+                        if (decoded is String && decoded.startsWith('[')) {
+                          decoded = jsonDecode(decoded);
+                        }
+                        services = decoded;
+                      } catch (e) {}
                     }
                     if (services is List) {
                       return services.map((s) => _buildServiceChip(s.toString())).toList();
@@ -715,17 +746,66 @@ class _UserDashboardState extends State<UserDashboard> {
               else
                 _buildServiceChip("General Service"),
               
-              if (status == 'completed' && (job['total_amount'] ?? job['totalAmount']) != null) ...[
-                const SizedBox(height: 24),
-                const Divider(color: AppTheme.surfaceLighter),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              const Divider(color: AppTheme.surfaceLighter),
+              const SizedBox(height: 24),
+              Text("COST BREAKDOWN", style: AppTheme.monoStyle(color: AppTheme.textMuted, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              const SizedBox(height: 16),
+              (() {
+                var rawCosts = job['cost_details'] ?? job['costDetails'];
+                Map<String, dynamic> costMap = {};
+                if (rawCosts is String) {
+                  try {
+                    var decoded = jsonDecode(rawCosts);
+                    if (decoded is String) {
+                      try {
+                        final nested = jsonDecode(decoded);
+                        if (nested is List || nested is Map) decoded = nested;
+                      } catch (e) {}
+                    }
+                    
+                    if (decoded is List) {
+                      for (var item in decoded) {
+                        if (item is Map) costMap[item['name'].toString()] = item['cost'];
+                      }
+                    } else if (decoded is Map) {
+                      costMap = Map<String, dynamic>.from(decoded);
+                    }
+                  } catch (e) {}
+                } else if (rawCosts is Map) {
+                  costMap = Map<String, dynamic>.from(rawCosts);
+                } else if (rawCosts is List) {
+                  for (var item in rawCosts) {
+                    if (item is Map) costMap[item['name'].toString()] = item['cost'];
+                  }
+                }
+
+                if (costMap.isEmpty) return const Text("Price details will appear once service starts", style: TextStyle(color: AppTheme.textMuted, fontSize: 11));
+
+                return Column(
                   children: [
-                    const Text("TOTAL PAID", style: TextStyle(color: AppTheme.textBody, fontSize: 16, fontWeight: FontWeight.bold)),
-                    Text("₹${job['total_amount'] ?? job['totalAmount']}", style: AppTheme.monoStyle(color: AppTheme.primary, fontSize: 20, fontWeight: FontWeight.bold)),
+                    ...costMap.entries.map((e) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(e.key, style: const TextStyle(color: AppTheme.textMuted, fontSize: 13)),
+                          Text("₹${e.value}", style: const TextStyle(color: AppTheme.textBody, fontSize: 13, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    )),
+                    const Divider(color: AppTheme.surfaceLighter, height: 32),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text("TOTAL AMOUNT", style: TextStyle(color: AppTheme.textBody, fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text("₹${job['total_amount'] ?? job['totalAmount'] ?? 0}", style: AppTheme.monoStyle(color: AppTheme.primary, fontSize: 20, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
                   ],
-                ),
+                );
+              })(),
+              
+              if (status == 'completed') ...[
                 const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity,

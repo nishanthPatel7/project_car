@@ -93,6 +93,8 @@ exports.getInitialState = onCall({
     await db.execute(`CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_uid TEXT, title TEXT, desc TEXT, icon TEXT, color TEXT, is_read INTEGER DEFAULT 0, created_at INTEGER)`);
     await db.execute(`CREATE TABLE IF NOT EXISTS platform_stats (stat_key TEXT PRIMARY KEY, stat_value INTEGER DEFAULT 0)`);
     await db.execute(`CREATE TABLE IF NOT EXISTS garage_stats (garage_uid TEXT PRIMARY KEY, daily_revenue INTEGER DEFAULT 0, lifetime_revenue INTEGER DEFAULT 0, daily_jobs INTEGER DEFAULT 0, lifetime_jobs INTEGER DEFAULT 0, last_reset INTEGER)`);
+    await db.execute(`CREATE TABLE IF NOT EXISTS garage_services (id INTEGER PRIMARY KEY AUTOINCREMENT, garage_uid TEXT, vehicle_type TEXT, model_name TEXT, service_name TEXT, cost INTEGER, created_at INTEGER)`);
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_garage_pricing ON garage_services (garage_uid, vehicle_type, model_name)`);
   } catch (e) { }
 
   // Migration: Add columns if they don't exist
@@ -107,6 +109,9 @@ exports.getInitialState = onCall({
   } catch (e) { }
   try {
     await db.execute("ALTER TABLE notifications ADD COLUMN is_read INTEGER DEFAULT 0");
+  } catch (e) { }
+  try {
+    await db.execute("ALTER TABLE notifications ADD COLUMN module TEXT DEFAULT 'user'");
   } catch (e) { }
 
   try {
@@ -138,6 +143,9 @@ exports.getInitialState = onCall({
 
     const stats = { new: 0, in_progress: 0, completed: 0, total: 0, active_garages: 0, revenue: 0 };
 
+    let identifiers = [];
+    let placeholders = "";
+
     if (currentRole === "garage_owner") {
       // Get all partner_ids for this owner to aggregate stats correctly
       const partnerIdsRs = await db.execute({
@@ -148,8 +156,8 @@ exports.getInitialState = onCall({
 
       // Build a filter that includes firebase_uid and ALL associated partner_ids
       // This is crucial because jobs can be linked to either.
-      const identifiers = [request.auth.uid, ...partnerIds];
-      const placeholders = identifiers.map(() => "?").join(",");
+      identifiers = [request.auth.uid, ...partnerIds];
+      placeholders = identifiers.map(() => "?").join(",");
 
       const jobsRs = await db.execute({
         sql: `SELECT status, COUNT(*) as count, SUM(total_amount) as total_revenue FROM jobs WHERE garage_uid IN (${placeholders}) GROUP BY status`,
@@ -215,7 +223,7 @@ exports.getInitialState = onCall({
                   SUM(total_amount) as daily_revenue
                 FROM jobs 
                 WHERE garage_uid IN (${placeholders}) AND LOWER(status) = 'completed' AND created_at >= ?`,
-          args: [...ids, startOfDay],
+          args: [...identifiers, startOfDay],
         });
         const lRow = liveStats.rows[0];
         if (Number(lRow.daily_jobs || 0) > 0) {
@@ -389,7 +397,127 @@ exports.getInitialState = onCall({
       },
     };
   } catch (error) {
-    console.error("getInitialState Fatal Error:", error);
+    console.error("getInitialState Error:", error);
+    throw new HttpsError("internal", error.message);
+  }
+});
+
+// --- GARAGE SERVICE PRICING ---
+
+exports.saveGarageServices = onCall({
+  secrets: ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"],
+  cors: true,
+}, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Authentication required");
+  const { garageUid, vehicleType, modelName, services } = request.data;
+  
+  // Resolve effectiveUid: prefer passed garageUid, fallback to auth.uid if missing or empty
+  let effectiveUid = garageUid;
+  if (!effectiveUid || (typeof effectiveUid === 'string' && effectiveUid.trim() === "")) {
+    effectiveUid = request.auth.uid;
+  }
+
+  if (!effectiveUid || !vehicleType || !modelName || !Array.isArray(services)) {
+    throw new HttpsError("invalid-argument", "Missing required fields (effectiveUid, vehicleType, modelName, or services)");
+  }
+
+  const db = getDb();
+
+  try {
+    const modelsRs = await db.execute({
+      sql: "SELECT DISTINCT model_name FROM garage_services WHERE garage_uid = ? AND vehicle_type = ?",
+      args: [effectiveUid, vehicleType]
+    });
+    
+    const existingModels = modelsRs.rows.map(r => r.model_name);
+    if (!existingModels.includes(modelName) && existingModels.length >= 20) {
+      throw new HttpsError("failed-precondition", `Maximum 20 ${vehicleType} models allowed.`);
+    }
+
+    if (services.length > 50) {
+      throw new HttpsError("failed-precondition", "Maximum 50 services allowed per model.");
+    }
+
+    await db.execute({
+      sql: "DELETE FROM garage_services WHERE garage_uid = ? AND vehicle_type = ? AND model_name = ?",
+      args: [effectiveUid, vehicleType, modelName]
+    });
+
+    const now = Date.now();
+    for (const s of services) {
+      await db.execute({
+        sql: "INSERT INTO garage_services (garage_uid, vehicle_type, model_name, service_name, cost, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        args: [effectiveUid, vehicleType, modelName, s.name, parseInt(s.cost) || 0, now]
+      });
+    }
+
+    return { status: "success", message: "Services updated successfully" };
+  } catch (error) {
+    console.error("saveGarageServices Error:", error);
+    throw new HttpsError("internal", error.message);
+  }
+});
+
+exports.getGaragePricing = onCall({
+  secrets: ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"],
+  cors: true,
+}, async (request) => {
+  let { garageUid, vehicleType, modelName, onlyBrands } = request.data;
+  
+  // Fallback to auth.uid if no garageUid provided (for owner's own view)
+  if (!garageUid || (typeof garageUid === 'string' && garageUid.trim() === "")) {
+    garageUid = request.auth?.uid;
+  }
+  
+  if (!garageUid) throw new HttpsError("invalid-argument", "Garage UID required");
+
+  const db = getDb();
+
+  try {
+    let sql = onlyBrands 
+      ? "SELECT DISTINCT model_name FROM garage_services WHERE garage_uid = ?" 
+      : "SELECT model_name, service_name, cost FROM garage_services WHERE garage_uid = ?";
+    let args = [garageUid];
+
+    if (vehicleType) {
+      sql += " AND vehicle_type = ?";
+      args.push(vehicleType);
+    }
+    if (modelName && !onlyBrands) {
+      sql += " AND model_name = ?";
+      args.push(modelName);
+    }
+
+    let rs = await db.execute({ sql, args });
+    
+    // --- LEGACY FALLBACK ---
+    // If no services found and the ID is short (likely a partner_id), 
+    // try to fetch services under the owner's Firebase UID.
+    if (rs.rows.length === 0 && garageUid.length < 15) {
+      const ownerRs = await db.execute({
+        sql: "SELECT user_uid FROM garage_requests WHERE partner_id = ? LIMIT 1",
+        args: [garageUid]
+      });
+      
+      if (ownerRs.rows.length > 0) {
+        const ownerUid = ownerRs.rows[0].user_uid;
+        // Don't fallback if the partner_id IS the user_uid (unlikely but safe)
+        if (ownerUid && ownerUid !== garageUid) {
+          let fallbackArgs = [ownerUid];
+          if (vehicleType) fallbackArgs.push(vehicleType);
+          if (modelName) fallbackArgs.push(modelName);
+          
+          const legacyRs = await db.execute({ sql, args: fallbackArgs });
+          if (legacyRs.rows.length > 0) {
+            return { status: "success", services: legacyRs.rows, is_legacy: true };
+          }
+        }
+      }
+    }
+
+    return { status: "success", services: rs.rows };
+  } catch (error) {
+    console.error("getGaragePricing Error:", error);
     throw new HttpsError("internal", error.message);
   }
 });
@@ -569,7 +697,7 @@ exports.uploadInventoryImage = onRequest({
   }
 });
 
-exports.submitJob = onCall({ region: "asia-south1", cpu: 0.1, memory: "128MiB" }, async (request) => {
+exports.submitJob = onCall({ secrets: ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"], region: "asia-south1", cpu: 0.1, memory: "128MiB" }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Login required");
   const db = getDb();
   const { vehicleNo, problemDesc, serviceTypes, mode, vehicleType, brand, address, totalAmount, costDetails } = request.data;
@@ -650,7 +778,7 @@ exports.submitJob = onCall({ region: "asia-south1", cpu: 0.1, memory: "128MiB" }
         customerUid,
         vehicleNo,
         problemDesc,
-        JSON.stringify(serviceTypes || []),
+        (typeof serviceTypes === 'string') ? serviceTypes : JSON.stringify(serviceTypes || []),
         request.data.status || "pending",
         mode || "Walk-in",
         vehicleType || "Car",
@@ -659,7 +787,7 @@ exports.submitJob = onCall({ region: "asia-south1", cpu: 0.1, memory: "128MiB" }
         resolvedGarageUid,
         resolvedPartnerId,
         totalAmount || 0,
-        costDetails ? JSON.stringify(costDetails) : null,
+        (typeof costDetails === 'string') ? costDetails : JSON.stringify(costDetails || []),
         invoiceNo,
         request.data.customerName || "Customer",
         Date.now(),
@@ -698,7 +826,7 @@ exports.submitJob = onCall({ region: "asia-south1", cpu: 0.1, memory: "128MiB" }
   }
 });
 
-exports.generateInvoiceNo = onCall({ region: "asia-south1" }, async (request) => {
+exports.generateInvoiceNo = onCall({ secrets: ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"], region: "asia-south1" }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Login required");
   const db = getDb();
 

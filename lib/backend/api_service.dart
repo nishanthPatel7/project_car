@@ -24,7 +24,7 @@ class ApiService {
   Future<Map<String, dynamic>> getInitialState({String? garageId}) async {
     try {
       final HttpsCallable callable = _functions.httpsCallable('getInitialState');
-      final result = await callable.call({'garageId': garageId}).timeout(const Duration(seconds: 10));
+      final result = await callable.call({'garageId': garageId}).timeout(const Duration(seconds: 15));
       if (result.data == null) return {};
       final data = _deepCast(result.data as Map);
       
@@ -34,7 +34,6 @@ class ApiService {
       
       return data;
     } catch (e) {
-      print("ApiService Error: $e");
       // Return cache if network fails or timeouts
       final cached = await getCachedInitialState();
       if (cached != null) return cached;
@@ -50,7 +49,7 @@ class ApiService {
         return jsonDecode(cachedStr) as Map<String, dynamic>;
       }
     } catch (e) {
-      print("Error reading cache: $e");
+      return null;
     }
     return null;
   }
@@ -103,6 +102,28 @@ class ApiService {
     try {
       final HttpsCallable callable = _functions.httpsCallable('updateStock');
       final result = await callable.call({'id': id, 'adjustment': adjustment});
+      if (result.data == null) return {};
+      return _deepCast(result.data as Map);
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> saveGarageServices(Map<String, dynamic> data) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('saveGarageServices');
+      final result = await callable.call(data);
+      if (result.data == null) return {};
+      return _deepCast(result.data as Map);
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> getGaragePricing(Map<String, dynamic> data) async {
+    try {
+      final HttpsCallable callable = _functions.httpsCallable('getGaragePricing');
+      final result = await callable.call(data);
       if (result.data == null) return {};
       return _deepCast(result.data as Map);
     } catch (e) {
